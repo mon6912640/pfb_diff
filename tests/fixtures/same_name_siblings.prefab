@@ -1,0 +1,6 @@
+[
+  {"__type__":"cc.Prefab","data":{"__id__":1}},
+  {"__type__":"cc.Node","_name":"Root","_children":[{"__id__":2},{"__id__":3}],"_components":[]},
+  {"__type__":"cc.Node","_name":"Item","_parent":{"__id__":1},"_children":[],"_components":[]},
+  {"__type__":"cc.Node","_name":"Item","_parent":{"__id__":1},"_children":[],"_components":[]}
+]

@@ -1,0 +1,58 @@
+LOW_INFO_NODE_NAMES = {
+    "bg",
+    "icon",
+    "label",
+    "title",
+    "num",
+    "txt",
+    "text",
+    "node",
+    "con",
+    "item",
+    "btn",
+}
+
+COCOS_INTERNAL_FIELDS = {
+    "__type__",
+    "__id__",
+    "_name",
+    "_objFlags",
+    "_parent",
+    "_children",
+    "_components",
+    "_prefab",
+    "_id",
+    "node",
+    "enabled",
+    "_enabled",
+    "_enabledInHierarchy",
+    "_sizeProvider",
+    "_sgNode",
+}
+
+NODE_PROP_FIELDS = [
+    "_active",
+    "_position",
+    "_scale",
+    "_contentSize",
+    "_anchorPoint",
+    "_color",
+    "_opacity",
+]
+
+RESOURCE_FIELDS = {
+    "cc.Sprite": ["_spriteFrame"],
+    "sp.Skeleton": ["_skeletonData"],
+}
+
+LABEL_FIELDS = ["_N$string", "_string", "string"]
+BUTTON_EVENT_FIELDS = ["clickEvents"]
+
+CONFIRMED_SCORE = 92
+PROBABLE_SCORE = 74
+UNCERTAIN_SCORE = 58
+AMBIGUOUS_DELTA = 4
+
+RISK_LOW = "low"
+RISK_MEDIUM = "medium"
+RISK_HIGH = "high"

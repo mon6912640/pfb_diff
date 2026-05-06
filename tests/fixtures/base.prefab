@@ -1,0 +1,13 @@
+[
+  {"__type__":"cc.Prefab","data":{"__id__":1}},
+  {"__type__":"cc.Node","_name":"Root","_active":true,"_children":[{"__id__":2},{"__id__":3},{"__id__":4}],"_components":[]},
+  {"__type__":"cc.Node","_name":"PanelLeft","_parent":{"__id__":1},"_children":[{"__id__":5}],"_components":[]},
+  {"__type__":"cc.Node","_name":"PanelRight","_parent":{"__id__":1},"_children":[],"_components":[]},
+  {"__type__":"cc.Node","_name":"BtnReward","_parent":{"__id__":1},"_children":[],"_components":[{"__id__":7},{"__id__":8},{"__id__":9},{"__id__":10}],"_position":{"x":10,"y":20},"_active":true},
+  {"__type__":"cc.Node","_name":"Label","_parent":{"__id__":2},"_children":[],"_components":[{"__id__":6}]},
+  {"__type__":"cc.Label","node":{"__id__":5},"_N$string":"Hello"},
+  {"__type__":"cc.Sprite","node":{"__id__":4},"_spriteFrame":{"__uuid__":"sprite-a"}},
+  {"__type__":"cc.Button","node":{"__id__":4},"clickEvents":[{"target":{"__id__":4},"component":"RewardView","handler":"onReward","customEventData":"1"}]},
+  {"__type__":"RewardView","node":{"__id__":4},"rewardId":100,"_privateCache":{"__id__":4}},
+  {"__type__":"cc.Widget","node":{"__id__":4},"isAlignLeft":true}
+]
