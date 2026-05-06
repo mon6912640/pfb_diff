@@ -10,6 +10,7 @@ from diff_engine import diff_prefabs
 from prefab_parser import parse_prefab
 from pfb_diff import _default_report_paths, _prefab_base_name
 from report_html import write_html_report
+from report_html_tree import write_html_report as write_html_tree_report
 from report_json import write_json_report
 
 FIXTURES = os.path.join(ROOT, "tests", "fixtures")
@@ -82,6 +83,18 @@ class PfbDiffTests(unittest.TestCase):
             write_html_report(t_result, t_html)
             self.assertTrue(os.path.getsize(t_json) > 0)
             self.assertTrue(os.path.getsize(t_html) > 0)
+
+    def test_tree_report_can_be_written(self):
+        t_result = diff_prefabs(fixture("base.prefab"), fixture("moved.prefab"))
+        with tempfile.TemporaryDirectory() as t_dir:
+            t_tree_html = os.path.join(t_dir, "tree_report.html")
+            write_html_tree_report(t_result, t_tree_html)
+            self.assertTrue(os.path.getsize(t_tree_html) > 0)
+            with open(t_tree_html, "r", encoding="utf-8") as f:
+                t_content = f.read()
+            self.assertIn("tree-area", t_content)
+            self.assertIn("chg-moved", t_content)
+            self.assertIn("ALL_CHANGES", t_content)
 
     def test_default_report_paths_use_prefab_names(self):
         t_paths = _default_report_paths(fixture("base.prefab"), fixture("moved.prefab"), p_create_dir=False)

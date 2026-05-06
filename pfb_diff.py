@@ -6,6 +6,7 @@ import time
 
 from diff_engine import diff_prefabs
 from report_html import write_html_report
+from report_html_tree import write_html_report as write_html_tree_report
 from report_json import write_json_report
 
 
@@ -16,6 +17,7 @@ def main(p_args=None):
     t_diff.add_argument("--before", required=True, help="old prefab file")
     t_diff.add_argument("--after", required=True, help="new prefab file")
     t_diff.add_argument("--out", help="html report path")
+    t_diff.add_argument("--out-tree", dest="out_tree", help="dark tree-based html report path")
     t_diff.add_argument("--json", dest="json_out", help="json report path")
     t_diff.add_argument("--fail-on-risk", choices=["medium", "high"], help="return non-zero when risk exists")
 
@@ -24,7 +26,7 @@ def main(p_args=None):
         t_parser.print_help()
         return 2
 
-    if not t_ns.json_out and not t_ns.out:
+    if not t_ns.json_out and not t_ns.out and not t_ns.out_tree:
         t_paths = _default_report_paths(t_ns.before, t_ns.after)
         t_ns.out = t_paths["html"]
         t_ns.json_out = t_paths["json"]
@@ -36,6 +38,9 @@ def main(p_args=None):
     if t_ns.out:
         write_html_report(t_result, t_ns.out)
         print("HTML report: %s" % t_ns.out)
+    if t_ns.out_tree:
+        write_html_tree_report(t_result, t_ns.out_tree)
+        print("Tree HTML report: %s" % t_ns.out_tree)
 
     if t_ns.fail_on_risk:
         t_risks = t_result.summary.get("by_risk", {})
