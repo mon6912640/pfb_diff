@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 import html
 import json
 import os
@@ -419,6 +419,20 @@ a { color: #60a5fa; }
 .tag-uncertain { background: #7f1d1d; color: #fca5a5; }
 .tag-unmatched { background: #334155; color: #94a3b8; }
 
+/* JSON Diff */
+.json-diff { display: flex; gap: 8px; margin-top: 6px; }
+.json-diff-col { flex: 1; min-width: 0; background: #0b1120; border: 1px solid #1e293b; border-radius: 4px; padding: 6px; }
+.json-diff-title { font-size: 10px; color: #64748b; margin-bottom: 4px; font-weight: 600; }
+.diff-line { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; padding: 1px 4px; white-space: pre-wrap; word-break: break-all; line-height: 1.5; }
+.diff-same { color: #cbd5e1; }
+.diff-del { background: rgba(239,68,68,0.12); color: #fca5a5; }
+.diff-add { background: rgba(34,197,94,0.12); color: #86efac; }
+.diff-mod { background: rgba(245,158,11,0.12); color: #fde047; }
+.diff-simple { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; padding: 8px; background: #0b1120; border: 1px solid #1e293b; border-radius: 4px; margin-top: 6px; }
+.diff-old { color: #fca5a5; text-decoration: line-through; margin-right: 6px; }
+.diff-new { color: #86efac; }
+.diff-arrow { color: #94a3b8; margin: 0 6px; }
+
 /* Scrollbar */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -591,14 +605,7 @@ function onNodeClick(row) {
         if (c.field) {
             fieldHtml = '<div class="field-path">' + _esc(c.field) + '</div>';
         }
-        let beforeHtml = '';
-        let afterHtml = '';
-        if (c.before !== undefined && c.before !== null) {
-            beforeHtml = '<pre>旧值: ' + _esc(JSON.stringify(c.before, null, 2)) + '</pre>';
-        }
-        if (c.after !== undefined && c.after !== null) {
-            afterHtml = '<pre>新值: ' + _esc(JSON.stringify(c.after, null, 2)) + '</pre>';
-        }
+        let valueDiffHtml = renderValueDiff(c.before, c.after);
         let pathHtml = '';
         if (c.beforePath && c.afterPath && c.beforePath !== c.afterPath) {
             pathHtml = '<div class="path-info">' + _esc(c.beforePath) + ' → ' + _esc(c.afterPath) + '</div>';
@@ -615,7 +622,7 @@ function onNodeClick(row) {
                 '<span class="type-label">' + _esc(typeText) + '</span>' +
                 confidenceHtml +
             '</div>' +
-            fieldHtml + pathHtml + beforeHtml + afterHtml +
+            fieldHtml + pathHtml + valueDiffHtml +
         '</div>';
     });
 
@@ -639,6 +646,58 @@ function _typeText(c) {
     return c.type;
 }
 
+function renderValueDiff(before, after) {
+    if (before === undefined && after === undefined) return '';
+    if (before === null && after === null) return '';
+    // Simple values
+    const bType = typeof before;
+    const aType = typeof after;
+    if ((bType !== 'object' || before === null) && (aType !== 'object' || after === null)) {
+        return '<div class="diff-simple"><span class="diff-old">' + _esc(String(before)) + '</span><span class="diff-arrow">→</span><span class="diff-new">' + _esc(String(after)) + '</span></div>';
+    }
+    return renderJsonDiff(before, after);
+}
+
+function renderJsonDiff(before, after) {
+    const bStr = JSON.stringify(before, null, 2);
+    const aStr = JSON.stringify(after, null, 2);
+    if (bStr === aStr) {
+        return '<pre>' + _esc(bStr) + '</pre>';
+    }
+    const bLines = bStr.split('\\n');
+    const aLines = aStr.split('\\n');
+    const aSet = new Set(aLines);
+    const bSet = new Set(bLines);
+    let html = '<div class="json-diff">';
+    html += '<div class="json-diff-col"><div class="json-diff-title">旧值</div>';
+    for (let i = 0; i < bLines.length; i++) {
+        const line = bLines[i];
+        const al = aLines[i];
+        if (aSet.has(line)) {
+            html += '<div class="diff-line diff-same">' + _esc(line) + '</div>';
+        } else if (al !== undefined && line !== al && !aSet.has(line)) {
+            html += '<div class="diff-line diff-mod">' + _esc(line) + '</div>';
+        } else {
+            html += '<div class="diff-line diff-del">' + _esc(line) + '</div>';
+        }
+    }
+    html += '</div>';
+    html += '<div class="json-diff-col"><div class="json-diff-title">新值</div>';
+    for (let i = 0; i < aLines.length; i++) {
+        const line = aLines[i];
+        const bl = bLines[i];
+        if (bSet.has(line)) {
+            html += '<div class="diff-line diff-same">' + _esc(line) + '</div>';
+        } else if (bl !== undefined && line !== bl && !bSet.has(line)) {
+            html += '<div class="diff-line diff-mod">' + _esc(line) + '</div>';
+        } else {
+            html += '<div class="diff-line diff-add">' + _esc(line) + '</div>';
+        }
+    }
+    html += '</div></div>';
+    return html;
+}
+
 function _esc(s) {
     const div = document.createElement('div');
     div.appendChild(document.createTextNode(String(s)));
@@ -657,3 +716,4 @@ function closeModal(e) {
 </body>
 </html>
 """
+
