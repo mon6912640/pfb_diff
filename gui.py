@@ -83,7 +83,10 @@ def _list_recent_reports(limit: int = 10):
 
 # ── 事件处理 ──
 async def handle_before_upload(e):
-    suffix = os.path.splitext(e.file.name)[1] or ".prefab"
+    if not e.file.name.lower().endswith(".prefab"):
+        ui.notify(f"请选择 .prefab 文件（当前: {e.file.name}）", type="warning")
+        return
+    suffix = ".prefab"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, prefix="pfb_before_") as f:
         f.write(await e.file.read())
         state.before_file = f.name
@@ -93,7 +96,10 @@ async def handle_before_upload(e):
 
 
 async def handle_after_upload(e):
-    suffix = os.path.splitext(e.file.name)[1] or ".prefab"
+    if not e.file.name.lower().endswith(".prefab"):
+        ui.notify(f"请选择 .prefab 文件（当前: {e.file.name}）", type="warning")
+        return
+    suffix = ".prefab"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, prefix="pfb_after_") as f:
         f.write(await e.file.read())
         state.after_file = f.name
@@ -142,7 +148,7 @@ def before_info():
             ui.label("或点击选择文件").classes("text-gray-600 text-xs mt-1")
         return
     info = _parse_info(state.before_file)
-    with ui.column().classes("w-full px-2 pb-2"):
+    with ui.column().classes("w-full px-2 pb-2").style("position: relative; z-index: 20;"):
         with ui.row().classes("w-full items-center justify-between"):
             with ui.column().classes("gap-0"):
                 ui.label(state.before_name).classes("text-white font-medium text-sm")
@@ -162,7 +168,7 @@ def after_info():
             ui.label("或点击选择文件").classes("text-gray-600 text-xs mt-1")
         return
     info = _parse_info(state.after_file)
-    with ui.column().classes("w-full px-2 pb-2"):
+    with ui.column().classes("w-full px-2 pb-2").style("position: relative; z-index: 20;"):
         with ui.row().classes("w-full items-center justify-between"):
             with ui.column().classes("gap-0"):
                 ui.label(state.after_name).classes("text-white font-medium text-sm")
@@ -174,21 +180,37 @@ def after_info():
 
 
 def before_zone():
-    with ui.card().classes("w-full").style("min-height: 200px; background: #111827; border: 2px dashed #334155; border-radius: 8px;"):
-        with ui.row().classes("w-full items-center gap-1 mb-2"):
+    with ui.card().classes("w-full").style(
+        "min-height: 200px; background: #111827; border: 2px dashed #334155; border-radius: 8px; position: relative; overflow: hidden;"
+    ):
+        with ui.row().classes("w-full items-center gap-1 mb-2").style("position: relative; z-index: 15;"):
             ui.icon("arrow_back", size="14px").classes("text-gray-500")
             ui.label("旧版本 (Before)").classes("text-gray-500 text-xs font-bold uppercase tracking-wider")
         before_info()
-        ui.upload(on_upload=handle_before_upload, auto_upload=True, label="").props("accept=.prefab flat bordered").classes("w-full mt-2")
+        ui.upload(
+            on_upload=handle_before_upload,
+            on_rejected=lambda: ui.notify("文件被拒绝，可能是格式或大小超限", type="warning"),
+            auto_upload=True,
+            label="",
+            max_file_size=50 * 1024 * 1024,
+        ).props("flat bordered").style("position: absolute; inset: 0; z-index: 10; opacity: 0.001;").classes("w-full h-full")
 
 
 def after_zone():
-    with ui.card().classes("w-full").style("min-height: 200px; background: #111827; border: 2px dashed #334155; border-radius: 8px;"):
-        with ui.row().classes("w-full items-center gap-1 mb-2"):
+    with ui.card().classes("w-full").style(
+        "min-height: 200px; background: #111827; border: 2px dashed #334155; border-radius: 8px; position: relative; overflow: hidden;"
+    ):
+        with ui.row().classes("w-full items-center gap-1 mb-2").style("position: relative; z-index: 15;"):
             ui.icon("arrow_forward", size="14px").classes("text-gray-500")
             ui.label("新版本 (After)").classes("text-gray-500 text-xs font-bold uppercase tracking-wider")
         after_info()
-        ui.upload(on_upload=handle_after_upload, auto_upload=True, label="").props("accept=.prefab flat bordered").classes("w-full mt-2")
+        ui.upload(
+            on_upload=handle_after_upload,
+            on_rejected=lambda: ui.notify("文件被拒绝，可能是格式或大小超限", type="warning"),
+            auto_upload=True,
+            label="",
+            max_file_size=50 * 1024 * 1024,
+        ).props("flat bordered").style("position: absolute; inset: 0; z-index: 10; opacity: 0.001;").classes("w-full h-full")
 
 
 @ui.refreshable
