@@ -65,6 +65,8 @@ def render_html(p_result, p_before_doc, p_after_doc):
         "title": "PfbDiff 树形对比报告",
         "before_file": _e(os.path.basename(p_result.before_file)),
         "after_file": _e(os.path.basename(p_result.after_file)),
+        "before_path": _e(os.path.abspath(p_result.before_file)),
+        "after_path": _e(os.path.abspath(p_result.after_file)),
         "before_tree": t_before_tree,
         "after_tree": t_after_tree,
         "legend": t_legend,
@@ -446,9 +448,15 @@ a { color: #60a5fa; }
     <div style="display:flex;align-items:center;gap:10px">
         <button class="conf-btn" onclick="openModal()">📖 置信度说明</button>
         <div class="files">
-            <span>%(before_file)s</span>
+            <div style="display:flex;flex-direction:column;align-items:flex-end">
+                <span>%(before_file)s</span>
+                <span style="color:#64748b;font-size:11px;margin-top:2px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="%(before_path)s">%(before_path)s</span>
+            </div>
             <span>→</span>
-            <span>%(after_file)s</span>
+            <div style="display:flex;flex-direction:column;align-items:flex-start">
+                <span>%(after_file)s</span>
+                <span style="color:#64748b;font-size:11px;margin-top:2px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="%(after_path)s">%(after_path)s</span>
+            </div>
         </div>
     </div>
 </div>
