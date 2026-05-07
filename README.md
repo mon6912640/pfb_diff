@@ -12,6 +12,15 @@ python3 packages/pfb_diff/pfb_diff.py diff \
   --json report.json
 ```
 
+`--out` 默认输出暗色主题树形对比报告。如需旧版表格报告：
+
+```bash
+python3 packages/pfb_diff/pfb_diff.py diff \
+  --before old.prefab \
+  --after new.prefab \
+  --out-classic report_classic.html
+```
+
 如果不传 `--out` 和 `--json`，工具会自动生成 HTML 和 JSON 报告到：
 
 ```text
@@ -34,7 +43,8 @@ python3 packages/pfb_diff/pfb_diff.py diff --before old.prefab --after new.prefa
 ## 输出
 
 - JSON：稳定结构，供测试、后续三方 diff 和 UI 复用。
-- HTML：静态表格，包含摘要、高风险列表、低置信度匹配、节点变化、字段变化、资源变化、事件变化、解析警告。
+- HTML（默认）：暗色主题树形对比报告，左右双栏展示节点树，不同变化类型用颜色标识，点击节点查看带高亮的字段 diff。
+- HTML（`--out-classic`）：静态表格，包含摘要、高风险列表、低置信度匹配、节点变化、字段变化、资源变化、事件变化、解析警告。
 
 ## 范围
 
