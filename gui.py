@@ -109,6 +109,7 @@ async def handle_after_upload(e):
 
 
 def remove_before():
+    global before_upload
     if state.before_file and os.path.exists(state.before_file):
         try:
             os.remove(state.before_file)
@@ -116,11 +117,14 @@ def remove_before():
             pass
     state.before_file = None
     state.before_name = ""
+    if before_upload:
+        before_upload.reset()
     before_info.refresh()
     check_ready()
 
 
 def remove_after():
+    global after_upload
     if state.after_file and os.path.exists(state.after_file):
         try:
             os.remove(state.after_file)
@@ -128,6 +132,8 @@ def remove_after():
             pass
     state.after_file = None
     state.after_name = ""
+    if after_upload:
+        after_upload.reset()
     after_info.refresh()
     check_ready()
 
@@ -136,6 +142,8 @@ def remove_after():
 gen_btn = None
 view_btn = None
 status_label = None
+before_upload = None
+after_upload = None
 
 
 # ── 动态刷新组件 ──
@@ -180,6 +188,7 @@ def after_info():
 
 
 def before_zone():
+    global before_upload
     with ui.card().classes("w-full").style(
         "min-height: 200px; background: #111827; border: 2px dashed #334155; border-radius: 8px; position: relative; overflow: hidden;"
     ):
@@ -187,7 +196,7 @@ def before_zone():
             ui.icon("arrow_back", size="14px").classes("text-gray-500")
             ui.label("旧版本 (Before)").classes("text-gray-500 text-xs font-bold uppercase tracking-wider")
         before_info()
-        ui.upload(
+        before_upload = ui.upload(
             on_upload=handle_before_upload,
             on_rejected=lambda: ui.notify("文件被拒绝，可能是格式或大小超限", type="warning"),
             auto_upload=True,
@@ -197,6 +206,7 @@ def before_zone():
 
 
 def after_zone():
+    global after_upload
     with ui.card().classes("w-full").style(
         "min-height: 200px; background: #111827; border: 2px dashed #334155; border-radius: 8px; position: relative; overflow: hidden;"
     ):
@@ -204,7 +214,7 @@ def after_zone():
             ui.icon("arrow_forward", size="14px").classes("text-gray-500")
             ui.label("新版本 (After)").classes("text-gray-500 text-xs font-bold uppercase tracking-wider")
         after_info()
-        ui.upload(
+        after_upload = ui.upload(
             on_upload=handle_after_upload,
             on_rejected=lambda: ui.notify("文件被拒绝，可能是格式或大小超限", type="warning"),
             auto_upload=True,
