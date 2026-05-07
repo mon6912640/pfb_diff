@@ -82,22 +82,22 @@ def _list_recent_reports(limit: int = 10):
 
 
 # ── 事件处理 ──
-def handle_before_upload(e):
-    suffix = os.path.splitext(e.name)[1] or ".prefab"
+async def handle_before_upload(e):
+    suffix = os.path.splitext(e.file.name)[1] or ".prefab"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, prefix="pfb_before_") as f:
-        f.write(e.content.read())
+        f.write(await e.file.read())
         state.before_file = f.name
-    state.before_name = e.name
+    state.before_name = e.file.name
     before_zone.refresh()
     check_ready()
 
 
-def handle_after_upload(e):
-    suffix = os.path.splitext(e.name)[1] or ".prefab"
+async def handle_after_upload(e):
+    suffix = os.path.splitext(e.file.name)[1] or ".prefab"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, prefix="pfb_after_") as f:
-        f.write(e.content.read())
+        f.write(await e.file.read())
         state.after_file = f.name
-    state.after_name = e.name
+    state.after_name = e.file.name
     after_zone.refresh()
     check_ready()
 
