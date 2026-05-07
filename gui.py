@@ -88,7 +88,7 @@ async def handle_before_upload(e):
         f.write(await e.file.read())
         state.before_file = f.name
     state.before_name = e.file.name
-    before_zone.refresh()
+    before_info.refresh()
     check_ready()
 
 
@@ -98,7 +98,7 @@ async def handle_after_upload(e):
         f.write(await e.file.read())
         state.after_file = f.name
     state.after_name = e.file.name
-    after_zone.refresh()
+    after_info.refresh()
     check_ready()
 
 
@@ -110,7 +110,7 @@ def remove_before():
             pass
     state.before_file = None
     state.before_name = ""
-    before_zone.refresh()
+    before_info.refresh()
     check_ready()
 
 
@@ -122,7 +122,7 @@ def remove_after():
             pass
     state.after_file = None
     state.after_name = ""
-    after_zone.refresh()
+    after_info.refresh()
     check_ready()
 
 
@@ -134,57 +134,61 @@ status_label = None
 
 # ── 动态刷新组件 ──
 @ui.refreshable
+def before_info():
+    if not state.before_file:
+        with ui.column().classes("w-full items-center justify-center py-6"):
+            ui.icon("upload_file", size="40px").classes("text-gray-600 mb-2")
+            ui.label("拖入旧版本 .prefab").classes("text-gray-400 text-sm")
+            ui.label("或点击选择文件").classes("text-gray-600 text-xs mt-1")
+        return
+    info = _parse_info(state.before_file)
+    with ui.column().classes("w-full px-2 pb-2"):
+        with ui.row().classes("w-full items-center justify-between"):
+            with ui.column().classes("gap-0"):
+                ui.label(state.before_name).classes("text-white font-medium text-sm")
+                if info["ok"]:
+                    ui.label(f"📄 {info['node_count']} 节点").classes("text-gray-400 text-xs mt-1")
+                else:
+                    ui.label(f"⚠️ 解析失败: {info['error']}").classes("text-red-400 text-xs mt-1")
+            ui.button("🗑 移除", on_click=remove_before).props("flat dense").classes("text-gray-500 hover:text-red-400 text-xs")
+
+
+@ui.refreshable
+def after_info():
+    if not state.after_file:
+        with ui.column().classes("w-full items-center justify-center py-6"):
+            ui.icon("upload_file", size="40px").classes("text-gray-600 mb-2")
+            ui.label("拖入新版本 .prefab").classes("text-gray-400 text-sm")
+            ui.label("或点击选择文件").classes("text-gray-600 text-xs mt-1")
+        return
+    info = _parse_info(state.after_file)
+    with ui.column().classes("w-full px-2 pb-2"):
+        with ui.row().classes("w-full items-center justify-between"):
+            with ui.column().classes("gap-0"):
+                ui.label(state.after_name).classes("text-white font-medium text-sm")
+                if info["ok"]:
+                    ui.label(f"📄 {info['node_count']} 节点").classes("text-gray-400 text-xs mt-1")
+                else:
+                    ui.label(f"⚠️ 解析失败: {info['error']}").classes("text-red-400 text-xs mt-1")
+            ui.button("🗑 移除", on_click=remove_after).props("flat dense").classes("text-gray-500 hover:text-red-400 text-xs")
+
+
 def before_zone():
     with ui.card().classes("w-full").style("min-height: 200px; background: #111827; border: 2px dashed #334155; border-radius: 8px;"):
         with ui.row().classes("w-full items-center gap-1 mb-2"):
             ui.icon("arrow_back", size="14px").classes("text-gray-500")
             ui.label("旧版本 (Before)").classes("text-gray-500 text-xs font-bold uppercase tracking-wider")
-
-        if state.before_file:
-            info = _parse_info(state.before_file)
-            with ui.column().classes("w-full px-2 pb-2"):
-                with ui.row().classes("w-full items-center justify-between"):
-                    with ui.column().classes("gap-0"):
-                        ui.label(state.before_name).classes("text-white font-medium text-sm")
-                        if info["ok"]:
-                            ui.label(f"📄 {info['node_count']} 节点").classes("text-gray-400 text-xs mt-1")
-                        else:
-                            ui.label(f"⚠️ 解析失败: {info['error']}").classes("text-red-400 text-xs mt-1")
-                    ui.button("🗑 移除", on_click=remove_before).props("flat dense").classes("text-gray-500 hover:text-red-400 text-xs")
-                ui.upload(on_upload=handle_before_upload, auto_upload=True, label="").props("accept=.prefab flat bordered").classes("w-full mt-2")
-        else:
-            with ui.column().classes("w-full items-center justify-center py-8"):
-                ui.icon("upload_file", size="40px").classes("text-gray-600 mb-2")
-                ui.label("拖入旧版本 .prefab").classes("text-gray-400 text-sm")
-                ui.label("或点击选择文件").classes("text-gray-600 text-xs mt-1")
-                ui.upload(on_upload=handle_before_upload, auto_upload=True, label="").props("accept=.prefab flat bordered").classes("w-full mt-3")
+        before_info()
+        ui.upload(on_upload=handle_before_upload, auto_upload=True, label="").props("accept=.prefab flat bordered").classes("w-full mt-2")
 
 
-@ui.refreshable
 def after_zone():
     with ui.card().classes("w-full").style("min-height: 200px; background: #111827; border: 2px dashed #334155; border-radius: 8px;"):
         with ui.row().classes("w-full items-center gap-1 mb-2"):
             ui.icon("arrow_forward", size="14px").classes("text-gray-500")
             ui.label("新版本 (After)").classes("text-gray-500 text-xs font-bold uppercase tracking-wider")
-
-        if state.after_file:
-            info = _parse_info(state.after_file)
-            with ui.column().classes("w-full px-2 pb-2"):
-                with ui.row().classes("w-full items-center justify-between"):
-                    with ui.column().classes("gap-0"):
-                        ui.label(state.after_name).classes("text-white font-medium text-sm")
-                        if info["ok"]:
-                            ui.label(f"📄 {info['node_count']} 节点").classes("text-gray-400 text-xs mt-1")
-                        else:
-                            ui.label(f"⚠️ 解析失败: {info['error']}").classes("text-red-400 text-xs mt-1")
-                    ui.button("🗑 移除", on_click=remove_after).props("flat dense").classes("text-gray-500 hover:text-red-400 text-xs")
-                ui.upload(on_upload=handle_after_upload, auto_upload=True, label="").props("accept=.prefab flat bordered").classes("w-full mt-2")
-        else:
-            with ui.column().classes("w-full items-center justify-center py-8"):
-                ui.icon("upload_file", size="40px").classes("text-gray-600 mb-2")
-                ui.label("拖入新版本 .prefab").classes("text-gray-400 text-sm")
-                ui.label("或点击选择文件").classes("text-gray-600 text-xs mt-1")
-                ui.upload(on_upload=handle_after_upload, auto_upload=True, label="").props("accept=.prefab flat bordered").classes("w-full mt-3")
+        after_info()
+        ui.upload(on_upload=handle_after_upload, auto_upload=True, label="").props("accept=.prefab flat bordered").classes("w-full mt-2")
 
 
 @ui.refreshable
