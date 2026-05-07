@@ -4,6 +4,16 @@
 
 ## 用法
 
+### 桌面 GUI（推荐日常对比）
+
+```bash
+python3 gui.py
+```
+
+启动暗色主题桌面窗口，拖入两个 `.prefab` 文件即可生成树形对比报告，支持查看历史报告。
+
+### CLI（脚本 / CI 集成）
+
 ```bash
 python3 packages/pfb_diff/pfb_diff.py diff \
   --before old.prefab \
