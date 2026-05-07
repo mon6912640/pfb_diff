@@ -406,6 +406,9 @@ a { color: #60a5fa; }
 }
 .modal-body h3 { margin: 14px 0 8px; font-size: 13px; color: #f8fafc; }
 .modal-body p { margin: 6px 0; }
+.modal-body ul, .modal-body ol { margin: 6px 0; padding-left: 18px; color: #cbd5e1; }
+.modal-body li { margin: 3px 0; }
+.modal-body code { background: #0f172a; padding: 1px 4px; border-radius: 3px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; color: #86efac; }
 .modal-body table { width: 100%%; border-collapse: collapse; margin: 8px 0; font-size: 11px; }
 .modal-body th, .modal-body td { border: 1px solid #334155; padding: 5px 8px; text-align: left; }
 .modal-body th { background: #0f172a; color: #94a3b8; font-weight: 600; }
@@ -518,6 +521,32 @@ a { color: #60a5fa; }
     <h3>为什么需要置信度？</h3>
     <p>普通文本 diff 只看路径，会把「移动节点」误报为「删除 + 新增」。PfbDiff 用指纹匹配来识别同一节点，但如果没有置信度机制，当两个 prefab 存在大量相似节点时（如列表中的多个 Item），很容易把 A 错配成 B，导致真正的变化被掩盖。</p>
     <p>置信度机制把这种风险量化出来：<b>不敢确定的就告诉用户，让用户做最终判断。</b></p>
+
+    <h3>低置信度在报告中如何识别？</h3>
+    <p>在树形对比报告中，低置信度节点有以下特征：</p>
+    <ul>
+        <li>节点行左侧边框为 <b>深红色（#dc2626）</b></li>
+        <li>Badge 标签显示「<b>低置信度</b>」或「<b>多候选</b>」</li>
+        <li>点击节点后，详情面板显示 <code>置信度: 62</code> 之类的分数</li>
+    </ul>
+
+    <h3>低置信度的风险分级</h3>
+    <table>
+        <tr><th>节点特征</th><th>风险等级</th><th>说明</th></tr>
+        <tr><td>低置信度 + <b>包含脚本或事件</b></td><td><span class="score-tag tag-uncertain">高风险</span></td><td>错配可能掩盖业务逻辑变化，必须人工确认</td></tr>
+        <tr><td>低置信度 + 纯 UI 展示节点</td><td><span class="score-tag tag-probable">中风险</span></td><td>视觉可能错位，但不会影响代码逻辑</td></tr>
+    </table>
+
+    <h3>看到低置信度时应该怎么做？</h3>
+    <ol>
+        <li><b>点击节点</b>查看详情面板，看置信度分数和匹配依据（如 <code>same_name</code>、<code>resource_overlap</code>）</li>
+        <li><b>对比左右两栏</b>该节点的路径、组件、资源，判断工具配得对不对</li>
+        <li><b>如果配错了</b>：在人工合并时忽略工具的匹配结论，按你自己的判断处理</li>
+        <li><b>如果配对了</b>：可以忽略这个警告，继续审查其他变化</li>
+    </ol>
+
+    <h3>一句话总结</h3>
+    <p><b>低置信度 = 工具在「举手投降」。</b>它发现了一些相似特征，但不敢打包票说这是同一个节点。深红色就是它的求救信号——请你来做最终判断，避免错配导致真正变化被掩盖。</p>
 </div>
 </div>
 </div>
