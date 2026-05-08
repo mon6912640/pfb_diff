@@ -6,16 +6,15 @@
 
 ### 桌面 GUI（推荐日常对比）
 
-本项目提供两个 GUI 版本，按需选择：
+```bash
+python gui.py
+```
 
-| 版本 | 启动命令 | 特点 |
-|------|---------|------|
-| **NiceGUI** | `python -m ngui.gui` | 现代暗色网页风界面，视觉效果更好 |
-| **Tkinter** | `python -m tkgui.gui` | 原生窗口，**拖放可直接获取文件完整路径**，不启动 web 服务 |
+启动原生桌面窗口，拖入两个 `.prefab` 文件即可生成树形对比报告，支持查看历史报告。
 
-> **路径显示建议**：如果希望报告中显示原始文件绝对路径（如 `C:\work\...\xxx.prefab`），推荐使用 **Tkinter 版本**；NiceGUI 版本因浏览器安全限制，拖放时无法获取完整路径。
+**特点**：使用 `tkinterdnd2` 实现原生拖放，**拖放可直接获取文件完整路径**（如 `C:\work\...\xxx.prefab`），报告中会显示原始路径方便区分。
 
-#### Tkinter 版本额外依赖
+**额外依赖**：
 ```bash
 pip install tkinterdnd2
 ```
@@ -68,15 +67,12 @@ python pfb_diff.py diff --before old.prefab --after new.prefab --fail-on-risk hi
 
 ```
 pfb_diff/
+├── gui.py                # 桌面 GUI 入口（Tkinter + tkinterdnd2）
 ├── pfb_diff.py           # CLI 入口
 ├── diff_engine.py        # 核心 diff 引擎
 ├── matcher.py            # 节点匹配引擎
 ├── report_html_tree.py   # 树形 HTML 报告生成器
 ├── report_json.py        # JSON 报告生成器
-├── ngui/                 # NiceGUI 桌面版本
-│   └── gui.py
-├── tkgui/                # Tkinter 桌面版本（原生拖放）
-│   └── gui.py
 ├── tests/                # 单元测试
 └── reports/              # 自动生成的报告目录
 ```

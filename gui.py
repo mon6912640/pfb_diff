@@ -1,13 +1,23 @@
 #!/usr/bin/env python3
-"""PfbDiff NiceGUI Desktop App — 暗色主题树形对比工具"""
+"""PfbDiff Tkinter Desktop App — 原生拖放，能获取完整文件路径"""
 
 import os
+import sys
 import time
 import webbrowser
-import tempfile
-from pathlib import Path
 
-from nicegui import ui, app
+_PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
+
+try:
+    from tkinterdnd2 import TkinterDnD, DND_FILES
+except ImportError:
+    print("缺少 tkinterdnd2，请执行: pip install tkinterdnd2")
+    sys.exit(1)
 
 from diff_engine import diff_prefabs
 from report_html_tree import write_html_report as write_tree_report
@@ -15,25 +25,32 @@ from report_json import write_json_report
 from prefab_parser import parse_prefab
 
 # ── 常量 ──
-REPORTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reports")
+REPORTS_DIR = os.path.join(_PROJECT_ROOT, "reports")
+
+# ── 配色 ──
+BG = "#0b1120"
+CARD_BG = "#111827"
+BORDER = "#334155"
+TEXT = "#e2e8f0"
+TEXT_DIM = "#94a3b8"
+TEXT_DARK = "#64748b"
+ACCENT = "#3b82f6"
 
 
-# ── 状态 ──
 class AppState:
     def __init__(self):
         self.before_file: str | None = None
         self.after_file: str | None = None
         self.before_name: str = ""
         self.after_name: str = ""
-        self.last_report_html: str | None = None
-        self.last_report_json: str | None = None
-        self.is_generating: bool = False
+        self.before_path: str = ""
+        self.after_path: str = ""
 
 
 state = AppState()
 
 
-# ── 工具函数 ──
+# ── 工具 ──
 def _ensure_reports_dir() -> None:
     if not os.path.isdir(REPORTS_DIR):
         os.makedirs(REPORTS_DIR)
@@ -61,16 +78,161 @@ def _default_report_paths(before_name: str, after_name: str):
 def _parse_info(file_path: str):
     try:
         doc = parse_prefab(file_path)
-        return {
-            "ok": True,
-            "node_count": len(doc.nodes),
-            "root_name": doc.root_nodes[0].name if doc.root_nodes else "",
-        }
+        return {"ok": True, "node_count": len(doc.nodes)}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
 
-def _list_recent_reports(limit: int = 10):
+def _strip_path(raw: str) -> str:
+    """tkinterdnd2 Windows 路径可能有 {} 包裹，去掉它"""
+    raw = raw.strip()
+    if raw.startswith("{") and raw.endswith("}"):
+        raw = raw[1:-1]
+    return raw
+
+
+# ── 拖放处理 ──
+def on_drop_before(event):
+    path = _strip_path(event.data)
+    if not path.lower().endswith(".prefab"):
+        messagebox.showwarning("格式错误", f"请选择 .prefab 文件\n当前: {path}")
+        return
+    state.before_file = path
+    state.before_name = os.path.basename(path)
+    state.before_path = path
+    update_before_ui()
+
+
+def on_drop_after(event):
+    path = _strip_path(event.data)
+    if not path.lower().endswith(".prefab"):
+        messagebox.showwarning("格式错误", f"请选择 .prefab 文件\n当前: {path}")
+        return
+    state.after_file = path
+    state.after_name = os.path.basename(path)
+    state.after_path = path
+    update_after_ui()
+
+
+# ── 浏览按钮 ──
+def browse_before():
+    path = filedialog.askopenfilename(filetypes=[("Prefab files", "*.prefab")])
+    if not path:
+        return
+    state.before_file = path
+    state.before_name = os.path.basename(path)
+    state.before_path = path
+    update_before_ui()
+
+
+def browse_after():
+    path = filedialog.askopenfilename(filetypes=[("Prefab files", "*.prefab")])
+    if not path:
+        return
+    state.after_file = path
+    state.after_name = os.path.basename(path)
+    state.after_path = path
+    update_after_ui()
+
+
+# ── 移除 ──
+def remove_before():
+    state.before_file = None
+    state.before_name = ""
+    state.before_path = ""
+    update_before_ui()
+
+
+def remove_after():
+    state.after_file = None
+    state.after_name = ""
+    state.after_path = ""
+    update_after_ui()
+
+
+# ── UI 更新 ──
+def update_before_ui():
+    if state.before_file:
+        info = _parse_info(state.before_file)
+        before_name_lbl.config(text=state.before_name)
+        if info["ok"]:
+            before_meta_lbl.config(text=f"📄 {info['node_count']} 节点")
+        else:
+            before_meta_lbl.config(text=f"⚠️ {info['error']}")
+        before_path_lbl.config(text=state.before_path)
+        before_drop_frame.pack_forget()
+        before_info_frame.pack(fill="both", expand=True, padx=8, pady=8)
+    else:
+        before_name_lbl.config(text="")
+        before_meta_lbl.config(text="")
+        before_path_lbl.config(text="")
+        before_info_frame.pack_forget()
+        before_drop_frame.pack(fill="both", expand=True, padx=8, pady=8)
+    check_ready()
+
+
+def update_after_ui():
+    if state.after_file:
+        info = _parse_info(state.after_file)
+        after_name_lbl.config(text=state.after_name)
+        if info["ok"]:
+            after_meta_lbl.config(text=f"📄 {info['node_count']} 节点")
+        else:
+            after_meta_lbl.config(text=f"⚠️ {info['error']}")
+        after_path_lbl.config(text=state.after_path)
+        after_drop_frame.pack_forget()
+        after_info_frame.pack(fill="both", expand=True, padx=8, pady=8)
+    else:
+        after_name_lbl.config(text="")
+        after_meta_lbl.config(text="")
+        after_path_lbl.config(text="")
+        after_info_frame.pack_forget()
+        after_drop_frame.pack(fill="both", expand=True, padx=8, pady=8)
+    check_ready()
+
+
+def check_ready():
+    ready = bool(state.before_file and state.after_file)
+    gen_btn.config(
+        state="normal" if ready else "disabled",
+        text="🔍 生成对比报告" if ready else "请先拖入两个 prefab",
+    )
+
+
+# ── 生成报告 ──
+def do_generate():
+    if not state.before_file or not state.after_file:
+        messagebox.showwarning("提示", "请先选择两个 prefab 文件")
+        return
+    gen_btn.config(state="disabled", text="⏳ 正在生成...")
+    root.update()
+
+    try:
+        result = diff_prefabs(state.before_file, state.after_file)
+        if state.before_path:
+            result.before_path = state.before_path
+        if state.after_path:
+            result.after_path = state.after_path
+        paths = _default_report_paths(state.before_name, state.after_name)
+        write_tree_report(result, paths["html"])
+        write_json_report(result, paths["json"])
+
+        status_lbl.config(text=f"✅ 已完成: {os.path.basename(paths['html'])}")
+        view_btn.config(state="normal", command=lambda: webbrowser.open(f"file://{os.path.abspath(paths['html'])}"))
+        load_recent_reports()
+        messagebox.showinfo("完成", "报告生成成功")
+    except Exception as e:
+        messagebox.showerror("失败", f"生成失败: {e}")
+        status_lbl.config(text="❌ 生成失败")
+    finally:
+        check_ready()
+
+
+# ── 最近报告 ──
+def load_recent_reports():
+    for widget in recent_frame.winfo_children():
+        widget.destroy()
+
     _ensure_reports_dir()
     files = []
     for f in os.listdir(REPORTS_DIR):
@@ -78,292 +240,124 @@ def _list_recent_reports(limit: int = 10):
             p = os.path.join(REPORTS_DIR, f)
             files.append((p, os.path.getmtime(p)))
     files.sort(key=lambda x: x[1], reverse=True)
-    return [p for p, _ in files[:limit]]
 
-
-# ── 事件处理 ──
-async def handle_before_upload(e):
-    if not e.file.name.lower().endswith(".prefab"):
-        ui.notify(f"请选择 .prefab 文件（当前: {e.file.name}）", type="warning")
+    if not files:
+        tk.Label(recent_frame, text="暂无报告", bg=BG, fg=TEXT_DARK, font=("Microsoft YaHei", 10)).pack(pady=10)
         return
-    suffix = ".prefab"
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, prefix="pfb_before_") as f:
-        f.write(await e.file.read())
-        state.before_file = f.name
-    state.before_name = e.file.name
-    before_info.refresh()
-    check_ready()
 
-
-async def handle_after_upload(e):
-    if not e.file.name.lower().endswith(".prefab"):
-        ui.notify(f"请选择 .prefab 文件（当前: {e.file.name}）", type="warning")
-        return
-    suffix = ".prefab"
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, prefix="pfb_after_") as f:
-        f.write(await e.file.read())
-        state.after_file = f.name
-    state.after_name = e.file.name
-    after_info.refresh()
-    check_ready()
-
-
-def remove_before():
-    global before_upload
-    if state.before_file and os.path.exists(state.before_file):
-        try:
-            os.remove(state.before_file)
-        except OSError:
-            pass
-    state.before_file = None
-    state.before_name = ""
-    if before_upload:
-        before_upload.reset()
-    before_info.refresh()
-    check_ready()
-
-
-def remove_after():
-    global after_upload
-    if state.after_file and os.path.exists(state.after_file):
-        try:
-            os.remove(state.after_file)
-        except OSError:
-            pass
-    state.after_file = None
-    state.after_name = ""
-    if after_upload:
-        after_upload.reset()
-    after_info.refresh()
-    check_ready()
-
-
-# ── UI 元素引用 ──
-gen_btn = None
-view_btn = None
-status_label = None
-before_upload = None
-after_upload = None
-
-
-# ── 动态刷新组件 ──
-@ui.refreshable
-def before_info():
-    if not state.before_file:
-        with ui.column().classes("w-full items-center justify-center py-6"):
-            ui.icon("upload_file", size="40px").classes("text-gray-600 mb-2")
-            ui.label("拖入旧版本 .prefab").classes("text-gray-400 text-sm")
-            ui.label("或点击选择文件").classes("text-gray-600 text-xs mt-1")
-        return
-    info = _parse_info(state.before_file)
-    with ui.column().classes("w-full px-2 pb-2").style("position: relative; z-index: 20;"):
-        with ui.row().classes("w-full items-center justify-between"):
-            with ui.column().classes("gap-0"):
-                ui.label(state.before_name).classes("text-white font-medium text-sm")
-                if info["ok"]:
-                    ui.label(f"📄 {info['node_count']} 节点").classes("text-gray-400 text-xs mt-1")
-                else:
-                    ui.label(f"⚠️ 解析失败: {info['error']}").classes("text-red-400 text-xs mt-1")
-            ui.button("🗑 移除", on_click=remove_before).props("flat dense").classes("text-gray-500 hover:text-red-400 text-xs")
-
-
-@ui.refreshable
-def after_info():
-    if not state.after_file:
-        with ui.column().classes("w-full items-center justify-center py-6"):
-            ui.icon("upload_file", size="40px").classes("text-gray-600 mb-2")
-            ui.label("拖入新版本 .prefab").classes("text-gray-400 text-sm")
-            ui.label("或点击选择文件").classes("text-gray-600 text-xs mt-1")
-        return
-    info = _parse_info(state.after_file)
-    with ui.column().classes("w-full px-2 pb-2").style("position: relative; z-index: 20;"):
-        with ui.row().classes("w-full items-center justify-between"):
-            with ui.column().classes("gap-0"):
-                ui.label(state.after_name).classes("text-white font-medium text-sm")
-                if info["ok"]:
-                    ui.label(f"📄 {info['node_count']} 节点").classes("text-gray-400 text-xs mt-1")
-                else:
-                    ui.label(f"⚠️ 解析失败: {info['error']}").classes("text-red-400 text-xs mt-1")
-            ui.button("🗑 移除", on_click=remove_after).props("flat dense").classes("text-gray-500 hover:text-red-400 text-xs")
-
-
-def before_zone():
-    global before_upload
-    with ui.card().classes("w-full").style(
-        "min-height: 200px; background: #111827; border: 2px dashed #334155; border-radius: 8px; position: relative; overflow: hidden;"
-    ):
-        with ui.row().classes("w-full items-center gap-1 mb-2").style("position: relative; z-index: 15;"):
-            ui.icon("arrow_back", size="14px").classes("text-gray-500")
-            ui.label("旧版本 (Before)").classes("text-gray-500 text-xs font-bold uppercase tracking-wider")
-        before_info()
-        before_upload = ui.upload(
-            on_upload=handle_before_upload,
-            on_rejected=lambda: ui.notify("文件被拒绝，可能是格式或大小超限", type="warning"),
-            auto_upload=True,
-            label="",
-            max_file_size=50 * 1024 * 1024,
-        ).props("flat bordered").style("position: absolute; inset: 0; z-index: 10; opacity: 0.001;").classes("w-full h-full")
-
-
-def after_zone():
-    global after_upload
-    with ui.card().classes("w-full").style(
-        "min-height: 200px; background: #111827; border: 2px dashed #334155; border-radius: 8px; position: relative; overflow: hidden;"
-    ):
-        with ui.row().classes("w-full items-center gap-1 mb-2").style("position: relative; z-index: 15;"):
-            ui.icon("arrow_forward", size="14px").classes("text-gray-500")
-            ui.label("新版本 (After)").classes("text-gray-500 text-xs font-bold uppercase tracking-wider")
-        after_info()
-        after_upload = ui.upload(
-            on_upload=handle_after_upload,
-            on_rejected=lambda: ui.notify("文件被拒绝，可能是格式或大小超限", type="warning"),
-            auto_upload=True,
-            label="",
-            max_file_size=50 * 1024 * 1024,
-        ).props("flat bordered").style("position: absolute; inset: 0; z-index: 10; opacity: 0.001;").classes("w-full h-full")
-
-
-@ui.refreshable
-def stats_summary(result):
-    container = ui.context.client.layout.default_slot.children[-1] if False else None
-    if not result:
-        return
-    summary = result.summary or {}
-    by_risk = summary.get("by_risk", {})
-    with ui.row().classes("gap-2 mt-4 justify-center"):
-        _stat_badge("匹配", summary.get("match_count", 0), "#3b82f6")
-        _stat_badge("高风险", by_risk.get("high", 0), "#ef4444")
-        _stat_badge("中风险", by_risk.get("medium", 0), "#f59e0b")
-        _stat_badge("低风险", by_risk.get("low", 0), "#22c55e")
-        _stat_badge("低置信度", summary.get("uncertain", 0), "#dc2626")
-
-
-def _stat_badge(label, count, color):
-    with ui.element("div").classes("px-3 py-1 rounded text-xs font-bold").style(f"background: {color}22; color: {color}; border: 1px solid {color}44;"):
-        ui.label(f"{label}: {count}")
-
-
-@ui.refreshable
-def recent_reports():
-    reports = _list_recent_reports(8)
-    if not reports:
-        with ui.row().classes("w-full justify-center py-6"):
-            ui.label("暂无报告，拖入两个 prefab 开始对比").classes("text-gray-600 text-sm")
-        return
-    for path in reports:
+    for path, mtime in files[:8]:
         name = os.path.basename(path)
-        mtime = time.strftime("%m-%d %H:%M", time.localtime(os.path.getmtime(path)))
-        with ui.row().classes("w-full items-center justify-between py-2 px-3 rounded").style("background: #0b1120; border: 1px solid #1e293b;"):
-            with ui.column().classes("gap-0"):
-                ui.label(name).classes("text-gray-300 text-xs font-medium")
-                ui.label(mtime).classes("text-gray-600 text-xs")
-            with ui.row().classes("gap-1"):
-                ui.button("👁", on_click=lambda p=path: webbrowser.open(f"file://{os.path.abspath(p)}")).props("flat dense round size=sm").classes("text-blue-400 hover:text-blue-300")
-                ui.button("📂", on_click=lambda p=path: os.startfile(os.path.dirname(p))).props("flat dense round size=sm").classes("text-gray-500 hover:text-gray-300")
+        t = time.strftime("%m-%d %H:%M", time.localtime(mtime))
+        row = tk.Frame(recent_frame, bg=CARD_BG)
+        row.pack(fill="x", padx=4, pady=2)
+        tk.Label(row, text=name, bg=CARD_BG, fg=TEXT, font=("Microsoft YaHei", 9, "bold")).pack(side="left")
+        tk.Label(row, text=t, bg=CARD_BG, fg=TEXT_DARK, font=("Microsoft YaHei", 9)).pack(side="left", padx=8)
+        tk.Button(
+            row, text="👁", bg=CARD_BG, fg=ACCENT, bd=0,
+            command=lambda p=path: webbrowser.open(f"file://{os.path.abspath(p)}"),
+        ).pack(side="right")
+        tk.Button(
+            row, text="📂", bg=CARD_BG, fg=TEXT_DIM, bd=0,
+            command=lambda p=path: os.startfile(os.path.dirname(p)),
+        ).pack(side="right", padx=4)
 
 
-# ── 核心逻辑 ──
-def check_ready():
-    ready = bool(state.before_file and state.after_file and not state.is_generating)
-    if gen_btn:
-        gen_btn.set_enabled(ready)
-        gen_btn.set_text("🔍 生成对比报告" if ready else "请先拖入两个 prefab")
-        gen_btn.style(f"background: {'#1e40af' if ready else '#334155'}; color: {'#fff' if ready else '#94a3b8'};")
+# ═══════════════════════════════════════
+# 主窗口
+# ═══════════════════════════════════════
+root = TkinterDnD.Tk()
+root.title("PfbDiff 预制体对比工具")
+root.geometry("900x700")
+root.configure(bg=BG)
 
+# 标题栏
+title_bar = tk.Frame(root, bg=BG)
+title_bar.pack(fill="x", padx=16, pady=12)
+tk.Label(title_bar, text="🌲 PfbDiff 预制体对比工具", bg=BG, fg=TEXT, font=("Microsoft YaHei", 14, "bold")).pack(side="left")
 
-def do_generate():
-    if not state.before_file or not state.after_file:
-        ui.notify("请先拖入两个 prefab 文件", type="warning")
-        return
-    state.is_generating = True
-    check_ready()
-    if view_btn:
-        view_btn.set_visibility(False)
-    if status_label:
-        status_label.set_text("⏳ 正在生成...")
+# 左右拖放区
+drop_area = tk.Frame(root, bg=BG)
+drop_area.pack(fill="both", expand=True, padx=16, pady=8)
+drop_area.grid_columnconfigure(0, weight=1)
+drop_area.grid_columnconfigure(1, weight=1)
+drop_area.grid_rowconfigure(0, weight=1)
 
-    try:
-        result = diff_prefabs(state.before_file, state.after_file)
-        paths = _default_report_paths(state.before_name, state.after_name)
-        write_tree_report(result, paths["html"])
-        write_json_report(result, paths["json"])
-        state.last_report_html = paths["html"]
-        state.last_report_json = paths["json"]
+# ── Before 卡片 ──
+before_card = tk.Frame(drop_area, bg=CARD_BG, highlightbackground=BORDER, highlightthickness=2)
+before_card.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
 
-        stats_summary.refresh(result)
-        recent_reports.refresh()
+# 拖放接收层（覆盖整个卡片）
+before_drop_frame = tk.Frame(before_card, bg=CARD_BG)
+before_drop_frame.pack(fill="both", expand=True)
+before_drop_frame.drop_target_register(DND_FILES)
+before_drop_frame.dnd_bind("<<Drop>>", on_drop_before)
 
-        ui.notify("✅ 报告生成完成", type="positive")
-        if view_btn:
-            view_btn.set_visibility(True)
-        if status_label:
-            status_label.set_text(f"✅ 已完成: {os.path.basename(paths['html'])}")
-    except Exception as e:
-        ui.notify(f"❌ 生成失败: {e}", type="negative")
-        if status_label:
-            status_label.set_text("❌ 生成失败")
-    finally:
-        state.is_generating = False
-        check_ready()
+tk.Label(before_drop_frame, text="⬅ Before（旧版本）", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 10, "bold")).pack(anchor="w", padx=8, pady=(8, 0))
+tk.Label(before_drop_frame, text="拖入旧版本 .prefab", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 11)).pack(expand=True)
+tk.Label(before_drop_frame, text="或点击选择文件", bg=CARD_BG, fg=TEXT_DARK, font=("Microsoft YaHei", 9)).pack()
+tk.Button(before_drop_frame, text="📂 浏览...", bg=CARD_BG, fg=ACCENT, bd=0, cursor="hand2", command=browse_before, font=("Microsoft YaHei", 9)).pack(pady=8)
 
+# 已载入信息层
+before_info_frame = tk.Frame(before_card, bg=CARD_BG)
+tk.Label(before_info_frame, text="⬅ Before（旧版本）", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 10, "bold")).pack(anchor="w", padx=8, pady=(8, 0))
+before_name_lbl = tk.Label(before_info_frame, text="", bg=CARD_BG, fg=TEXT, font=("Microsoft YaHei", 10, "bold"))
+before_name_lbl.pack(anchor="w", padx=8, pady=(4, 0))
+before_meta_lbl = tk.Label(before_info_frame, text="", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 9))
+before_meta_lbl.pack(anchor="w", padx=8)
+before_path_lbl = tk.Label(before_info_frame, text="", bg=CARD_BG, fg=TEXT_DARK, font=("Microsoft YaHei", 9))
+before_path_lbl.pack(anchor="w", padx=8, pady=(2, 0))
+btn_row = tk.Frame(before_info_frame, bg=CARD_BG)
+btn_row.pack(anchor="e", padx=8, pady=8)
+tk.Button(btn_row, text="🗑 移除", bg=CARD_BG, fg=TEXT_DIM, bd=0, cursor="hand2", command=remove_before, font=("Microsoft YaHei", 9)).pack(side="right", padx=4)
+tk.Button(btn_row, text="📂 浏览...", bg=CARD_BG, fg=ACCENT, bd=0, cursor="hand2", command=browse_before, font=("Microsoft YaHei", 9)).pack(side="right", padx=4)
 
-def do_view():
-    if state.last_report_html and os.path.exists(state.last_report_html):
-        webbrowser.open(f"file://{os.path.abspath(state.last_report_html)}")
-    else:
-        ui.notify("报告文件不存在", type="warning")
+# ── After 卡片 ──
+after_card = tk.Frame(drop_area, bg=CARD_BG, highlightbackground=BORDER, highlightthickness=2)
+after_card.grid(row=0, column=1, sticky="nsew", padx=8, pady=8)
 
+after_drop_frame = tk.Frame(after_card, bg=CARD_BG)
+after_drop_frame.pack(fill="both", expand=True)
+after_drop_frame.drop_target_register(DND_FILES)
+after_drop_frame.dnd_bind("<<Drop>>", on_drop_after)
 
-# ── 布局 ──
-ui.dark_mode()
+tk.Label(after_drop_frame, text="➡ After（新版本）", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 10, "bold")).pack(anchor="w", padx=8, pady=(8, 0))
+tk.Label(after_drop_frame, text="拖入新版本 .prefab", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 11)).pack(expand=True)
+tk.Label(after_drop_frame, text="或点击选择文件", bg=CARD_BG, fg=TEXT_DARK, font=("Microsoft YaHei", 9)).pack()
+tk.Button(after_drop_frame, text="📂 浏览...", bg=CARD_BG, fg=ACCENT, bd=0, cursor="hand2", command=browse_after, font=("Microsoft YaHei", 9)).pack(pady=8)
 
-with ui.column().classes("w-full min-h-screen p-4").style("background: #0b1120;"):
+after_info_frame = tk.Frame(after_card, bg=CARD_BG)
+tk.Label(after_info_frame, text="➡ After（新版本）", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 10, "bold")).pack(anchor="w", padx=8, pady=(8, 0))
+after_name_lbl = tk.Label(after_info_frame, text="", bg=CARD_BG, fg=TEXT, font=("Microsoft YaHei", 10, "bold"))
+after_name_lbl.pack(anchor="w", padx=8, pady=(4, 0))
+after_meta_lbl = tk.Label(after_info_frame, text="", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 9))
+after_meta_lbl.pack(anchor="w", padx=8)
+after_path_lbl = tk.Label(after_info_frame, text="", bg=CARD_BG, fg=TEXT_DARK, font=("Microsoft YaHei", 9))
+after_path_lbl.pack(anchor="w", padx=8, pady=(2, 0))
+btn_row2 = tk.Frame(after_info_frame, bg=CARD_BG)
+btn_row2.pack(anchor="e", padx=8, pady=8)
+tk.Button(btn_row2, text="🗑 移除", bg=CARD_BG, fg=TEXT_DIM, bd=0, cursor="hand2", command=remove_after, font=("Microsoft YaHei", 9)).pack(side="right", padx=4)
+tk.Button(btn_row2, text="📂 浏览...", bg=CARD_BG, fg=ACCENT, bd=0, cursor="hand2", command=browse_after, font=("Microsoft YaHei", 9)).pack(side="right", padx=4)
 
-    # ── 顶部标题栏 ──
-    with ui.row().classes("w-full items-center justify-between mb-6").style("border-bottom: 1px solid #1e293b; padding-bottom: 12px;"):
-        with ui.row().classes("items-center gap-2"):
-            ui.icon("forest", size="28px").classes("text-green-400")
-            ui.label("PfbDiff 树形对比工具").classes("text-h6 text-white font-bold")
-        ui.button("📖 置信度说明", on_click=lambda: ui.notify("在树形报告页面右上角点击 📖 按钮查看", type="info")).props("flat dense").classes("text-gray-400 hover:text-white")
+# 操作按钮
+action_bar = tk.Frame(root, bg=BG)
+action_bar.pack(fill="x", padx=16, pady=8)
+gen_btn = tk.Button(action_bar, text="请先拖入两个 prefab", bg=BORDER, fg=TEXT_DIM, bd=0, padx=20, pady=6, cursor="hand2", state="disabled", command=do_generate, font=("Microsoft YaHei", 10, "bold"))
+gen_btn.pack(side="left")
+view_btn = tk.Button(action_bar, text="👁 查看树形报告", bg="#1e40af", fg=TEXT, bd=0, padx=16, pady=6, cursor="hand2", state="disabled", font=("Microsoft YaHei", 10, "bold"))
+view_btn.pack(side="left", padx=8)
 
-    # ── 左右拖放区 ──
-    with ui.row().classes("w-full justify-center gap-4 mb-4"):
-        with ui.element("div").classes("flex-1").style("max-width: 420px;"):
-            before_zone()
-        with ui.element("div").classes("flex-1").style("max-width: 420px;"):
-            after_zone()
+# 状态栏
+status_lbl = tk.Label(root, text="就绪", bg=BG, fg=TEXT_DARK, font=("Microsoft YaHei", 9))
+status_lbl.pack(anchor="w", padx=16, pady=(0, 4))
 
-    # ── 操作区 ──
-    with ui.row().classes("w-full justify-center gap-3 mb-2"):
-        gen_btn = ui.button("请先拖入两个 prefab", on_click=do_generate).props("unelevated").classes("px-8 py-2 text-sm font-bold rounded-lg")
-        gen_btn.style("background: #334155; color: #94a3b8;")
-        gen_btn.set_enabled(False)
+# 最近报告
+recent_container = tk.Frame(root, bg=CARD_BG, highlightbackground=BORDER, highlightthickness=1)
+recent_container.pack(fill="both", expand=True, padx=16, pady=8)
+tk.Label(recent_container, text="📁 最近生成的报告", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 10, "bold")).pack(anchor="w", padx=8, pady=8)
+recent_frame = tk.Frame(recent_container, bg=CARD_BG)
+recent_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+load_recent_reports()
 
-        view_btn = ui.button("👁 查看树形报告", on_click=do_view).props("unelevated").classes("px-6 py-2 text-sm font-bold rounded-lg")
-        view_btn.style("background: #1e40af; color: #fff;")
-        view_btn.set_visibility(False)
-
-    # ── 统计摘要占位 ──
-    stats_summary(None)
-
-    # ── 最近报告列表 ──
-    with ui.card().classes("w-full mt-6 flex-grow").style("background: #111827; border: 1px solid #1e293b;"):
-        with ui.row().classes("items-center gap-2 mb-3"):
-            ui.icon("folder_open", size="18px").classes("text-gray-500")
-            ui.label("最近生成的报告").classes("text-gray-400 text-sm font-bold")
-        recent_reports()
-
-    # ── 底部状态栏 ──
-    with ui.row().classes("w-full items-center justify-between mt-4 pt-2").style("border-top: 1px solid #1e293b;"):
-        status_label = ui.label("就绪").classes("text-gray-600 text-xs")
-        ui.label("v1.0.0  ·  CLI: python pfb_diff.py diff --before old.prefab --after new.prefab").classes("text-gray-700 text-xs")
-
-
-# ── 启动 ──
-if __name__ in {"__main__", "__mp_main__"}:
-    ui.run(
-        native=True,
-        title="PfbDiff",
-        window_size=(1100, 820),
-        favicon="🌲",
-    )
+# 启动
+if __name__ == "__main__":
+    root.mainloop()
