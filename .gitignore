@@ -3,3 +3,8 @@ __pycache__/
 *.pyo
 reports/
 dev/
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+*.exe
