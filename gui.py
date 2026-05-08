@@ -262,6 +262,13 @@ def load_recent_reports():
         ).pack(side="right", padx=4)
 
 
+def _get_resource_path(rel: str) -> str:
+    """兼容 PyInstaller 打包后的资源路径"""
+    if hasattr(sys, "_MEIPASS"):
+        return os.path.join(sys._MEIPASS, rel)
+    return os.path.join(_PROJECT_ROOT, rel)
+
+
 # ═══════════════════════════════════════
 # 主窗口
 # ═══════════════════════════════════════
@@ -269,6 +276,13 @@ root = TkinterDnD.Tk()
 root.title("PfbDiff 预制体对比工具")
 root.geometry("900x700")
 root.configure(bg=BG)
+
+_icon_path = _get_resource_path("icon.ico")
+if os.path.isfile(_icon_path):
+    try:
+        root.iconbitmap(_icon_path)
+    except Exception:
+        pass
 
 # 标题栏
 title_bar = tk.Frame(root, bg=BG)

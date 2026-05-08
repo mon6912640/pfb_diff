@@ -32,10 +32,12 @@ python -m PyInstaller ^
     --onefile ^
     --noconsole ^
     --clean ^
+    --icon=icon.ico ^
     --distpath . ^
     --add-data "%TKDND_PATH%\tkdnd;tkinterdnd2\tkdnd" ^
     --hidden-import tkinterdnd2 ^
     --hidden-import tkinterdnd2.TkinterDnD ^
+    --add-data "icon.ico;." ^
     gui.py
 
 if errorlevel 1 (
