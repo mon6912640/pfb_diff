@@ -448,15 +448,9 @@ a { color: #60a5fa; }
     <div style="display:flex;align-items:center;gap:10px">
         <button class="conf-btn" onclick="openModal()">📖 置信度说明</button>
         <div class="files">
-            <div style="display:flex;flex-direction:column;align-items:flex-end">
-                <span>%(before_file)s</span>
-                <span style="color:#64748b;font-size:11px;margin-top:2px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="%(before_path)s">%(before_path)s</span>
-            </div>
+            <span>%(before_file)s</span>
             <span>→</span>
-            <div style="display:flex;flex-direction:column;align-items:flex-start">
-                <span>%(after_file)s</span>
-                <span style="color:#64748b;font-size:11px;margin-top:2px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="%(after_path)s">%(after_path)s</span>
-            </div>
+            <span>%(after_file)s</span>
         </div>
     </div>
 </div>
@@ -479,11 +473,11 @@ a { color: #60a5fa; }
 
 <div class="tree-area">
     <div class="tree-panel">
-        <div class="panel-title">⬅ Before（旧版本）</div>
+        <div class="panel-title">⬅ Before（旧版本）<span style="color:#64748b;font-size:11px;font-weight:400;text-transform:none;letter-spacing:0;margin-left:8px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:middle;" title="%(before_path)s">%(before_path)s</span></div>
         %(before_tree)s
     </div>
     <div class="tree-panel">
-        <div class="panel-title">➡ After（新版本）</div>
+        <div class="panel-title">➡ After（新版本）<span style="color:#64748b;font-size:11px;font-weight:400;text-transform:none;letter-spacing:0;margin-left:8px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:middle;" title="%(after_path)s">%(after_path)s</span></div>
         %(after_tree)s
     </div>
 </div>

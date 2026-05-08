@@ -13,7 +13,7 @@ def diff_prefabs(p_before_file: str, p_after_file: str) -> DiffResult:
     apply_fingerprints(t_before)
     apply_fingerprints(t_after)
     t_matches = match_documents(t_before, t_after)
-    t_result = DiffResult(before_file=p_before_file, after_file=p_after_file)
+    t_result = DiffResult(before_file=p_before_file, after_file=p_after_file, before_path=p_before_file, after_path=p_after_file)
     t_result.warnings = _warnings_with_side("before", t_before.warnings) + _warnings_with_side("after", t_after.warnings)
     for t_warning in t_result.warnings:
         t_result.changes.append(Change(

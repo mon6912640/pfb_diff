@@ -22,6 +22,8 @@ class Change:
 class DiffResult:
     before_file: str
     after_file: str
+    before_path: str = ""
+    after_path: str = ""
     summary: Dict[str, Any] = dc_field(default_factory=dict)
     matches: List[Dict[str, Any]] = dc_field(default_factory=list)
     changes: List[Change] = dc_field(default_factory=list)
