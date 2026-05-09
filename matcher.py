@@ -164,6 +164,8 @@ def _find_exact_identity(
     t_hash = p_before.fingerprint.identity_hash
     if p_before_identity_counts.get(t_hash, 0) != 1 or p_after_identity_counts.get(t_hash, 0) != 1:
         return None, []
+    if not _has_strong_identity_features(p_before):
+        return None, []
     t_matches = [
         t_after for t_after in p_after_nodes
         if t_hash == t_after.fingerprint.identity_hash
@@ -210,6 +212,10 @@ def _is_duplicate_identity_pair(
         return False
     t_hash = p_before.fingerprint.identity_hash
     return p_before_identity_counts.get(t_hash, 0) > 1 or p_after_identity_counts.get(t_hash, 0) > 1
+
+
+def _has_strong_identity_features(p_node: PrefabNode) -> bool:
+    return bool(p_node.script_types() or _resources(p_node) or _label_texts(p_node) or _events(p_node))
 
 
 def _score_pair(p_before: PrefabNode, p_after: PrefabNode, p_parent_map: Optional[Dict[str, str]] = None) -> Tuple[int, List[str]]:

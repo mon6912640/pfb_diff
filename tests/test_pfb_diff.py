@@ -78,6 +78,15 @@ class PfbDiffTests(unittest.TestCase):
             for t_match in t_result.matches
         ))
 
+    def test_weak_layout_container_is_not_cross_path_confirmed(self):
+        t_result = diff_prefabs(test_pfb("gui_hcll.prefab"), test_pfb("hb_hcll.prefab"))
+        t_moved_paths = [
+            (t_change.before_path, t_change.after_path)
+            for t_change in t_result.changes
+            if t_change.category == "node" and t_change.type == "moved"
+        ]
+        self.assertNotIn(("Hcll/bg/content", "Hcll/ScrollView/view/content"), t_moved_paths)
+
     def test_rename_is_not_delete_plus_add(self):
         t_result = diff_prefabs(fixture("base.prefab"), fixture("renamed.prefab"))
         t_types = [(t_change.category, t_change.type) for t_change in t_result.changes]
