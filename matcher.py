@@ -21,7 +21,16 @@ def match_documents(p_before: PrefabDocument, p_after: PrefabDocument) -> List[N
     t_unmatched_after = list(p_after.nodes)
 
     for t_before in list(t_unmatched_before):
-        t_after, t_score, t_reasons = _find_same_path_anchor(t_before, t_unmatched_after)
+        t_after, t_score, t_reasons = _find_same_internal_path_anchor(t_before, t_unmatched_after)
+        if t_after:
+            t_matches.append(NodeMatch(t_before, t_after, _status_from_score(t_score, -1), t_score, t_reasons))
+            t_unmatched_before.remove(t_before)
+            t_unmatched_after.remove(t_after)
+
+    t_before_path_counts = _path_counts(t_unmatched_before)
+    t_after_path_counts = _path_counts(t_unmatched_after)
+    for t_before in list(t_unmatched_before):
+        t_after, t_score, t_reasons = _find_same_path_anchor(t_before, t_unmatched_after, t_before_path_counts, t_after_path_counts)
         if t_after:
             t_matches.append(NodeMatch(t_before, t_after, _status_from_score(t_score, -1), t_score, t_reasons))
             t_unmatched_before.remove(t_before)
@@ -74,6 +83,13 @@ def _identity_counts(p_nodes: List[PrefabNode]) -> Dict[str, int]:
     return t_counts
 
 
+def _path_counts(p_nodes: List[PrefabNode]) -> Dict[str, int]:
+    t_counts = {}
+    for t_node in p_nodes:
+        t_counts[t_node.path] = t_counts.get(t_node.path, 0) + 1
+    return t_counts
+
+
 def _build_candidate_index(p_after_nodes: List[PrefabNode]) -> Dict[str, Dict[str, List[PrefabNode]]]:
     t_index = {
         "script": {},
@@ -121,7 +137,26 @@ def _index_add(p_bucket: Dict[str, List[PrefabNode]], p_key: str, p_node: Prefab
     p_bucket.setdefault(str(p_key), []).append(p_node)
 
 
-def _find_same_path_anchor(p_before: PrefabNode, p_after_nodes: List[PrefabNode]) -> Tuple[Optional[PrefabNode], int, List[str]]:
+def _find_same_internal_path_anchor(p_before: PrefabNode, p_after_nodes: List[PrefabNode]) -> Tuple[Optional[PrefabNode], int, List[str]]:
+    for t_after in p_after_nodes:
+        if p_before.internal_path != t_after.internal_path:
+            continue
+        t_score, t_reasons = _score_pair(p_before, t_after)
+        if _is_safe_same_path_match(p_before, t_after):
+            if "same_internal_path_anchor" not in t_reasons:
+                t_reasons.append("same_internal_path_anchor")
+            return t_after, max(t_score, PROBABLE_SCORE), t_reasons
+    return None, 0, []
+
+
+def _find_same_path_anchor(
+    p_before: PrefabNode,
+    p_after_nodes: List[PrefabNode],
+    p_before_path_counts: Dict[str, int],
+    p_after_path_counts: Dict[str, int],
+) -> Tuple[Optional[PrefabNode], int, List[str]]:
+    if p_before_path_counts.get(p_before.path, 0) != 1 or p_after_path_counts.get(p_before.path, 0) != 1:
+        return None, 0, []
     for t_after in p_after_nodes:
         if p_before.path != t_after.path:
             continue
