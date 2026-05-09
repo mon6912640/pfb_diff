@@ -6,7 +6,12 @@ import sys
 import time
 import webbrowser
 
-_PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+def _get_project_root():
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+_PROJECT_ROOT = _get_project_root()
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
@@ -272,106 +277,111 @@ def _get_resource_path(rel: str) -> str:
 # ═══════════════════════════════════════
 # 主窗口
 # ═══════════════════════════════════════
-root = TkinterDnD.Tk()
-root.title("PfbDiff 预制体对比工具")
-root.geometry("900x700")
-root.configure(bg=BG)
+def run_gui():
+    global root, before_drop_frame, before_info_frame, before_name_lbl, before_meta_lbl, before_path_lbl
+    global after_drop_frame, after_info_frame, after_name_lbl, after_meta_lbl, after_path_lbl
+    global gen_btn, view_btn, status_lbl, recent_frame
 
-_icon_path = _get_resource_path("icon.ico")
-if os.path.isfile(_icon_path):
-    try:
-        root.iconbitmap(_icon_path)
-    except Exception:
-        pass
+    root = TkinterDnD.Tk()
+    root.title("PfbDiff 预制体对比工具")
+    root.geometry("900x700")
+    root.configure(bg=BG)
 
-# 标题栏
-title_bar = tk.Frame(root, bg=BG)
-title_bar.pack(fill="x", padx=16, pady=12)
-tk.Label(title_bar, text="🌲 PfbDiff 预制体对比工具", bg=BG, fg=TEXT, font=("Microsoft YaHei", 14, "bold")).pack(side="left")
+    _icon_path = _get_resource_path("icon.ico")
+    if os.path.isfile(_icon_path):
+        try:
+            root.iconbitmap(_icon_path)
+        except Exception:
+            pass
 
-# 左右拖放区
-drop_area = tk.Frame(root, bg=BG)
-drop_area.pack(fill="both", expand=True, padx=16, pady=8)
-drop_area.grid_columnconfigure(0, weight=1)
-drop_area.grid_columnconfigure(1, weight=1)
-drop_area.grid_rowconfigure(0, weight=1)
+    # 标题栏
+    title_bar = tk.Frame(root, bg=BG)
+    title_bar.pack(fill="x", padx=16, pady=12)
+    tk.Label(title_bar, text="🌲 PfbDiff 预制体对比工具", bg=BG, fg=TEXT, font=("Microsoft YaHei", 14, "bold")).pack(side="left")
 
-# ── Before 卡片 ──
-before_card = tk.Frame(drop_area, bg=CARD_BG, highlightbackground=BORDER, highlightthickness=2)
-before_card.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
+    # 左右拖放区
+    drop_area = tk.Frame(root, bg=BG)
+    drop_area.pack(fill="both", expand=True, padx=16, pady=8)
+    drop_area.grid_columnconfigure(0, weight=1)
+    drop_area.grid_columnconfigure(1, weight=1)
+    drop_area.grid_rowconfigure(0, weight=1)
 
-# 拖放接收层（覆盖整个卡片）
-before_drop_frame = tk.Frame(before_card, bg=CARD_BG)
-before_drop_frame.pack(fill="both", expand=True)
-before_drop_frame.drop_target_register(DND_FILES)
-before_drop_frame.dnd_bind("<<Drop>>", on_drop_before)
+    # ── Before 卡片 ──
+    before_card = tk.Frame(drop_area, bg=CARD_BG, highlightbackground=BORDER, highlightthickness=2)
+    before_card.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
 
-tk.Label(before_drop_frame, text="⬅ Before（旧版本）", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 10, "bold")).pack(anchor="w", padx=8, pady=(8, 0))
-tk.Label(before_drop_frame, text="拖入旧版本 .prefab", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 11)).pack(expand=True)
-tk.Label(before_drop_frame, text="或点击选择文件", bg=CARD_BG, fg=TEXT_DARK, font=("Microsoft YaHei", 9)).pack()
-tk.Button(before_drop_frame, text="📂 浏览...", bg=CARD_BG, fg=ACCENT, bd=0, cursor="hand2", command=browse_before, font=("Microsoft YaHei", 9)).pack(pady=8)
+    before_drop_frame = tk.Frame(before_card, bg=CARD_BG)
+    before_drop_frame.pack(fill="both", expand=True)
+    before_drop_frame.drop_target_register(DND_FILES)
+    before_drop_frame.dnd_bind("<<Drop>>", on_drop_before)
 
-# 已载入信息层
-before_info_frame = tk.Frame(before_card, bg=CARD_BG)
-tk.Label(before_info_frame, text="⬅ Before（旧版本）", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 10, "bold")).pack(anchor="w", padx=8, pady=(8, 0))
-before_name_lbl = tk.Label(before_info_frame, text="", bg=CARD_BG, fg=TEXT, font=("Microsoft YaHei", 10, "bold"))
-before_name_lbl.pack(anchor="w", padx=8, pady=(4, 0))
-before_meta_lbl = tk.Label(before_info_frame, text="", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 9))
-before_meta_lbl.pack(anchor="w", padx=8)
-before_path_lbl = tk.Label(before_info_frame, text="", bg=CARD_BG, fg=TEXT_DARK, font=("Microsoft YaHei", 9))
-before_path_lbl.pack(anchor="w", padx=8, pady=(2, 0))
-btn_row = tk.Frame(before_info_frame, bg=CARD_BG)
-btn_row.pack(anchor="e", padx=8, pady=8)
-tk.Button(btn_row, text="🗑 移除", bg=CARD_BG, fg=TEXT_DIM, bd=0, cursor="hand2", command=remove_before, font=("Microsoft YaHei", 9)).pack(side="right", padx=4)
-tk.Button(btn_row, text="📂 浏览...", bg=CARD_BG, fg=ACCENT, bd=0, cursor="hand2", command=browse_before, font=("Microsoft YaHei", 9)).pack(side="right", padx=4)
+    tk.Label(before_drop_frame, text="⬅ Before（旧版本）", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 10, "bold")).pack(anchor="w", padx=8, pady=(8, 0))
+    tk.Label(before_drop_frame, text="拖入旧版本 .prefab", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 11)).pack(expand=True)
+    tk.Label(before_drop_frame, text="或点击选择文件", bg=CARD_BG, fg=TEXT_DARK, font=("Microsoft YaHei", 9)).pack()
+    tk.Button(before_drop_frame, text="📂 浏览...", bg=CARD_BG, fg=ACCENT, bd=0, cursor="hand2", command=browse_before, font=("Microsoft YaHei", 9)).pack(pady=8)
 
-# ── After 卡片 ──
-after_card = tk.Frame(drop_area, bg=CARD_BG, highlightbackground=BORDER, highlightthickness=2)
-after_card.grid(row=0, column=1, sticky="nsew", padx=8, pady=8)
+    before_info_frame = tk.Frame(before_card, bg=CARD_BG)
+    tk.Label(before_info_frame, text="⬅ Before（旧版本）", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 10, "bold")).pack(anchor="w", padx=8, pady=(8, 0))
+    before_name_lbl = tk.Label(before_info_frame, text="", bg=CARD_BG, fg=TEXT, font=("Microsoft YaHei", 10, "bold"))
+    before_name_lbl.pack(anchor="w", padx=8, pady=(4, 0))
+    before_meta_lbl = tk.Label(before_info_frame, text="", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 9))
+    before_meta_lbl.pack(anchor="w", padx=8)
+    before_path_lbl = tk.Label(before_info_frame, text="", bg=CARD_BG, fg=TEXT_DARK, font=("Microsoft YaHei", 9))
+    before_path_lbl.pack(anchor="w", padx=8, pady=(2, 0))
+    btn_row = tk.Frame(before_info_frame, bg=CARD_BG)
+    btn_row.pack(anchor="e", padx=8, pady=8)
+    tk.Button(btn_row, text="🗑 移除", bg=CARD_BG, fg=TEXT_DIM, bd=0, cursor="hand2", command=remove_before, font=("Microsoft YaHei", 9)).pack(side="right", padx=4)
+    tk.Button(btn_row, text="📂 浏览...", bg=CARD_BG, fg=ACCENT, bd=0, cursor="hand2", command=browse_before, font=("Microsoft YaHei", 9)).pack(side="right", padx=4)
 
-after_drop_frame = tk.Frame(after_card, bg=CARD_BG)
-after_drop_frame.pack(fill="both", expand=True)
-after_drop_frame.drop_target_register(DND_FILES)
-after_drop_frame.dnd_bind("<<Drop>>", on_drop_after)
+    # ── After 卡片 ──
+    after_card = tk.Frame(drop_area, bg=CARD_BG, highlightbackground=BORDER, highlightthickness=2)
+    after_card.grid(row=0, column=1, sticky="nsew", padx=8, pady=8)
 
-tk.Label(after_drop_frame, text="➡ After（新版本）", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 10, "bold")).pack(anchor="w", padx=8, pady=(8, 0))
-tk.Label(after_drop_frame, text="拖入新版本 .prefab", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 11)).pack(expand=True)
-tk.Label(after_drop_frame, text="或点击选择文件", bg=CARD_BG, fg=TEXT_DARK, font=("Microsoft YaHei", 9)).pack()
-tk.Button(after_drop_frame, text="📂 浏览...", bg=CARD_BG, fg=ACCENT, bd=0, cursor="hand2", command=browse_after, font=("Microsoft YaHei", 9)).pack(pady=8)
+    after_drop_frame = tk.Frame(after_card, bg=CARD_BG)
+    after_drop_frame.pack(fill="both", expand=True)
+    after_drop_frame.drop_target_register(DND_FILES)
+    after_drop_frame.dnd_bind("<<Drop>>", on_drop_after)
 
-after_info_frame = tk.Frame(after_card, bg=CARD_BG)
-tk.Label(after_info_frame, text="➡ After（新版本）", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 10, "bold")).pack(anchor="w", padx=8, pady=(8, 0))
-after_name_lbl = tk.Label(after_info_frame, text="", bg=CARD_BG, fg=TEXT, font=("Microsoft YaHei", 10, "bold"))
-after_name_lbl.pack(anchor="w", padx=8, pady=(4, 0))
-after_meta_lbl = tk.Label(after_info_frame, text="", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 9))
-after_meta_lbl.pack(anchor="w", padx=8)
-after_path_lbl = tk.Label(after_info_frame, text="", bg=CARD_BG, fg=TEXT_DARK, font=("Microsoft YaHei", 9))
-after_path_lbl.pack(anchor="w", padx=8, pady=(2, 0))
-btn_row2 = tk.Frame(after_info_frame, bg=CARD_BG)
-btn_row2.pack(anchor="e", padx=8, pady=8)
-tk.Button(btn_row2, text="🗑 移除", bg=CARD_BG, fg=TEXT_DIM, bd=0, cursor="hand2", command=remove_after, font=("Microsoft YaHei", 9)).pack(side="right", padx=4)
-tk.Button(btn_row2, text="📂 浏览...", bg=CARD_BG, fg=ACCENT, bd=0, cursor="hand2", command=browse_after, font=("Microsoft YaHei", 9)).pack(side="right", padx=4)
+    tk.Label(after_drop_frame, text="➡ After（新版本）", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 10, "bold")).pack(anchor="w", padx=8, pady=(8, 0))
+    tk.Label(after_drop_frame, text="拖入新版本 .prefab", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 11)).pack(expand=True)
+    tk.Label(after_drop_frame, text="或点击选择文件", bg=CARD_BG, fg=TEXT_DARK, font=("Microsoft YaHei", 9)).pack()
+    tk.Button(after_drop_frame, text="📂 浏览...", bg=CARD_BG, fg=ACCENT, bd=0, cursor="hand2", command=browse_after, font=("Microsoft YaHei", 9)).pack(pady=8)
 
-# 操作按钮
-action_bar = tk.Frame(root, bg=BG)
-action_bar.pack(fill="x", padx=16, pady=8)
-gen_btn = tk.Button(action_bar, text="请先拖入两个 prefab", bg=BORDER, fg=TEXT_DIM, bd=0, padx=20, pady=6, cursor="hand2", state="disabled", command=do_generate, font=("Microsoft YaHei", 10, "bold"))
-gen_btn.pack(side="left")
-view_btn = tk.Button(action_bar, text="👁 查看树形报告", bg="#1e40af", fg=TEXT, bd=0, padx=16, pady=6, cursor="hand2", state="disabled", font=("Microsoft YaHei", 10, "bold"))
-view_btn.pack(side="left", padx=8)
+    after_info_frame = tk.Frame(after_card, bg=CARD_BG)
+    tk.Label(after_info_frame, text="➡ After（新版本）", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 10, "bold")).pack(anchor="w", padx=8, pady=(8, 0))
+    after_name_lbl = tk.Label(after_info_frame, text="", bg=CARD_BG, fg=TEXT, font=("Microsoft YaHei", 10, "bold"))
+    after_name_lbl.pack(anchor="w", padx=8, pady=(4, 0))
+    after_meta_lbl = tk.Label(after_info_frame, text="", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 9))
+    after_meta_lbl.pack(anchor="w", padx=8)
+    after_path_lbl = tk.Label(after_info_frame, text="", bg=CARD_BG, fg=TEXT_DARK, font=("Microsoft YaHei", 9))
+    after_path_lbl.pack(anchor="w", padx=8, pady=(2, 0))
+    btn_row2 = tk.Frame(after_info_frame, bg=CARD_BG)
+    btn_row2.pack(anchor="e", padx=8, pady=8)
+    tk.Button(btn_row2, text="🗑 移除", bg=CARD_BG, fg=TEXT_DIM, bd=0, cursor="hand2", command=remove_after, font=("Microsoft YaHei", 9)).pack(side="right", padx=4)
+    tk.Button(btn_row2, text="📂 浏览...", bg=CARD_BG, fg=ACCENT, bd=0, cursor="hand2", command=browse_after, font=("Microsoft YaHei", 9)).pack(side="right", padx=4)
 
-# 状态栏
-status_lbl = tk.Label(root, text="就绪", bg=BG, fg=TEXT_DARK, font=("Microsoft YaHei", 9))
-status_lbl.pack(anchor="w", padx=16, pady=(0, 4))
+    # 操作按钮
+    action_bar = tk.Frame(root, bg=BG)
+    action_bar.pack(fill="x", padx=16, pady=8)
+    gen_btn = tk.Button(action_bar, text="请先拖入两个 prefab", bg=BORDER, fg=TEXT_DIM, bd=0, padx=20, pady=6, cursor="hand2", state="disabled", command=do_generate, font=("Microsoft YaHei", 10, "bold"))
+    gen_btn.pack(side="left")
+    view_btn = tk.Button(action_bar, text="👁 查看树形报告", bg="#1e40af", fg=TEXT, bd=0, padx=16, pady=6, cursor="hand2", state="disabled", font=("Microsoft YaHei", 10, "bold"))
+    view_btn.pack(side="left", padx=8)
 
-# 最近报告
-recent_container = tk.Frame(root, bg=CARD_BG, highlightbackground=BORDER, highlightthickness=1)
-recent_container.pack(fill="both", expand=True, padx=16, pady=8)
-tk.Label(recent_container, text="📁 最近生成的报告", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 10, "bold")).pack(anchor="w", padx=8, pady=8)
-recent_frame = tk.Frame(recent_container, bg=CARD_BG)
-recent_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
-load_recent_reports()
+    # 状态栏
+    status_lbl = tk.Label(root, text="就绪", bg=BG, fg=TEXT_DARK, font=("Microsoft YaHei", 9))
+    status_lbl.pack(anchor="w", padx=16, pady=(0, 4))
 
-# 启动
-if __name__ == "__main__":
+    # 最近报告
+    recent_container = tk.Frame(root, bg=CARD_BG, highlightbackground=BORDER, highlightthickness=1)
+    recent_container.pack(fill="both", expand=True, padx=16, pady=8)
+    tk.Label(recent_container, text="📁 最近生成的报告", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 10, "bold")).pack(anchor="w", padx=8, pady=8)
+    recent_frame = tk.Frame(recent_container, bg=CARD_BG)
+    recent_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+    load_recent_reports()
+
     root.mainloop()
+
+
+if __name__ == "__main__":
+    run_gui()

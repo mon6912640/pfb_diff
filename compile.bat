@@ -38,7 +38,7 @@ python -m PyInstaller ^
     --hidden-import tkinterdnd2 ^
     --hidden-import tkinterdnd2.TkinterDnD ^
     --add-data "icon.ico;." ^
-    gui.py
+    main.py
 
 if errorlevel 1 (
     echo [ERROR] Build failed!
