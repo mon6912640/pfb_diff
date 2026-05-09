@@ -19,18 +19,27 @@ def match_documents(p_before: PrefabDocument, p_after: PrefabDocument) -> List[N
     t_matches = []
     t_unmatched_before = list(p_before.nodes)
     t_unmatched_after = list(p_after.nodes)
-    t_candidate_index = _build_candidate_index(t_unmatched_after)
 
     for t_before in list(t_unmatched_before):
-        t_after, t_reasons = _find_exact_identity(t_before, t_unmatched_after)
+        t_after, t_score, t_reasons = _find_same_path_anchor(t_before, t_unmatched_after)
+        if t_after:
+            t_matches.append(NodeMatch(t_before, t_after, _status_from_score(t_score, -1), t_score, t_reasons))
+            t_unmatched_before.remove(t_before)
+            t_unmatched_after.remove(t_after)
+
+    t_before_identity_counts = _identity_counts(t_unmatched_before)
+    t_after_identity_counts = _identity_counts(t_unmatched_after)
+    for t_before in list(t_unmatched_before):
+        t_after, t_reasons = _find_exact_identity(t_before, t_unmatched_after, t_before_identity_counts, t_after_identity_counts)
         if t_after:
             t_matches.append(NodeMatch(t_before, t_after, "confirmed", 100, t_reasons))
             t_unmatched_before.remove(t_before)
             t_unmatched_after.remove(t_after)
 
+    t_candidate_index = _build_candidate_index(t_unmatched_after)
     for t_before in list(t_unmatched_before):
         t_candidates = _candidate_nodes(t_before, t_unmatched_after, t_candidate_index)
-        t_ranked = _rank_candidates(t_before, t_candidates)
+        t_ranked = _rank_candidates(t_before, t_candidates, t_matches, t_before_identity_counts, t_after_identity_counts)
         if not t_ranked:
             continue
         t_after, t_score, t_reasons = t_ranked[0]
@@ -55,6 +64,14 @@ def match_documents(p_before: PrefabDocument, p_after: PrefabDocument) -> List[N
         t_matches.append(NodeMatch(None, t_after, "unmatched", 0, ["added"]))
 
     return t_matches
+
+
+def _identity_counts(p_nodes: List[PrefabNode]) -> Dict[str, int]:
+    t_counts = {}
+    for t_node in p_nodes:
+        t_hash = t_node.fingerprint.identity_hash
+        t_counts[t_hash] = t_counts.get(t_hash, 0) + 1
+    return t_counts
 
 
 def _build_candidate_index(p_after_nodes: List[PrefabNode]) -> Dict[str, Dict[str, List[PrefabNode]]]:
@@ -104,32 +121,98 @@ def _index_add(p_bucket: Dict[str, List[PrefabNode]], p_key: str, p_node: Prefab
     p_bucket.setdefault(str(p_key), []).append(p_node)
 
 
-def _find_exact_identity(p_before: PrefabNode, p_after_nodes: List[PrefabNode]) -> Tuple[Optional[PrefabNode], List[str]]:
+def _find_same_path_anchor(p_before: PrefabNode, p_after_nodes: List[PrefabNode]) -> Tuple[Optional[PrefabNode], int, List[str]]:
+    for t_after in p_after_nodes:
+        if p_before.path != t_after.path:
+            continue
+        t_score, t_reasons = _score_pair(p_before, t_after)
+        if _is_safe_same_path_match(p_before, t_after):
+            if "same_path_anchor" not in t_reasons:
+                t_reasons.append("same_path_anchor")
+            return t_after, max(t_score, PROBABLE_SCORE), t_reasons
+    return None, 0, []
+
+
+def _is_safe_same_path_match(p_before: PrefabNode, p_after: PrefabNode) -> bool:
+    if p_before.path != p_after.path or p_before.name != p_after.name:
+        return False
+    if p_before.fingerprint.identity_hash == p_after.fingerprint.identity_hash:
+        return True
+    if p_before.fingerprint.structure_hash == p_after.fingerprint.structure_hash:
+        return True
+    if p_before.fingerprint.visual_hash == p_after.fingerprint.visual_hash:
+        return True
+    if set(p_before.component_types()) & set(p_after.component_types()):
+        return True
+    if set(p_before.script_types()) & set(p_after.script_types()):
+        return True
+    if set(_resources(p_before)) & set(_resources(p_after)):
+        return True
+    if set(_label_texts(p_before)) & set(_label_texts(p_after)):
+        return True
+    if set([t_child.name for t_child in p_before.children]) & set([t_child.name for t_child in p_after.children]):
+        return True
+    return False
+
+
+def _find_exact_identity(
+    p_before: PrefabNode,
+    p_after_nodes: List[PrefabNode],
+    p_before_identity_counts: Dict[str, int],
+    p_after_identity_counts: Dict[str, int],
+) -> Tuple[Optional[PrefabNode], List[str]]:
+    t_hash = p_before.fingerprint.identity_hash
+    if p_before_identity_counts.get(t_hash, 0) != 1 or p_after_identity_counts.get(t_hash, 0) != 1:
+        return None, []
     t_matches = [
         t_after for t_after in p_after_nodes
-        if p_before.fingerprint.identity_hash == t_after.fingerprint.identity_hash
+        if t_hash == t_after.fingerprint.identity_hash
     ]
     if not t_matches:
         return None, []
-    if len(t_matches) == 1:
-        return t_matches[0], ["same_identity_hash"]
-
-    for t_after in t_matches:
-        if p_before.path == t_after.path:
-            return t_after, ["same_identity_hash", "same_path"]
-    return None, []
+    return t_matches[0], ["same_unique_identity_hash"]
 
 
-def _rank_candidates(p_before: PrefabNode, p_after_nodes: List[PrefabNode]) -> List[Tuple[PrefabNode, int, List[str]]]:
+def _rank_candidates(
+    p_before: PrefabNode,
+    p_after_nodes: List[PrefabNode],
+    p_existing_matches: List[NodeMatch],
+    p_before_identity_counts: Dict[str, int],
+    p_after_identity_counts: Dict[str, int],
+) -> List[Tuple[PrefabNode, int, List[str]]]:
     t_ranked = []
+    t_parent_map = _matched_parent_map(p_existing_matches)
     for t_after in p_after_nodes:
-        t_score, t_reasons = _score_pair(p_before, t_after)
+        t_score, t_reasons = _score_pair(p_before, t_after, t_parent_map)
+        if _is_duplicate_identity_pair(p_before, t_after, p_before_identity_counts, p_after_identity_counts):
+            t_score = min(t_score, CONFIRMED_SCORE - 1)
+            t_reasons.append("duplicate_identity")
         if t_score >= UNCERTAIN_SCORE:
             t_ranked.append((t_after, t_score, t_reasons))
     return sorted(t_ranked, key=lambda p_item: p_item[1], reverse=True)
 
 
-def _score_pair(p_before: PrefabNode, p_after: PrefabNode) -> Tuple[int, List[str]]:
+def _matched_parent_map(p_matches: List[NodeMatch]) -> Dict[str, str]:
+    t_map = {}
+    for t_match in p_matches:
+        if t_match.before is not None and t_match.after is not None:
+            t_map[t_match.before.path] = t_match.after.path
+    return t_map
+
+
+def _is_duplicate_identity_pair(
+    p_before: PrefabNode,
+    p_after: PrefabNode,
+    p_before_identity_counts: Dict[str, int],
+    p_after_identity_counts: Dict[str, int],
+) -> bool:
+    if p_before.fingerprint.identity_hash != p_after.fingerprint.identity_hash:
+        return False
+    t_hash = p_before.fingerprint.identity_hash
+    return p_before_identity_counts.get(t_hash, 0) > 1 or p_after_identity_counts.get(t_hash, 0) > 1
+
+
+def _score_pair(p_before: PrefabNode, p_after: PrefabNode, p_parent_map: Optional[Dict[str, str]] = None) -> Tuple[int, List[str]]:
     t_score = 0
     t_reasons = []
     if p_before.name == p_after.name:
@@ -170,11 +253,32 @@ def _score_pair(p_before: PrefabNode, p_after: PrefabNode) -> Tuple[int, List[st
         t_score += 4
         t_reasons.append("same_sibling_index")
 
+    if p_parent_map and p_before.parent_path in p_parent_map:
+        t_expected_after_parent = p_parent_map[p_before.parent_path]
+        if t_expected_after_parent == p_after.parent_path:
+            t_score += 14
+            t_reasons.append("matched_parent")
+        elif not _has_strong_content_match(p_before, p_after):
+            t_score -= 10
+            t_reasons.append("different_matched_parent")
+
     if not p_before.component_types() and not p_after.component_types() and _is_low_info(p_before.name) and _is_low_info(p_after.name):
         t_score -= 18
         t_reasons.append("low_information_node_penalty")
 
     return max(0, min(100, t_score)), t_reasons
+
+
+def _has_strong_content_match(p_before: PrefabNode, p_after: PrefabNode) -> bool:
+    t_same_hashes = 0
+    for t_before_hash, t_after_hash in (
+        (p_before.fingerprint.structure_hash, p_after.fingerprint.structure_hash),
+        (p_before.fingerprint.visual_hash, p_after.fingerprint.visual_hash),
+        (p_before.fingerprint.behavior_hash, p_after.fingerprint.behavior_hash),
+    ):
+        if t_before_hash == t_after_hash:
+            t_same_hashes += 1
+    return t_same_hashes >= 2
 
 
 def _status_from_score(p_score: int, p_second_score: int) -> str:

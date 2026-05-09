@@ -14,10 +14,15 @@ from report_html_tree import write_html_report as write_html_tree_report
 from report_json import write_json_report
 
 FIXTURES = os.path.join(ROOT, "tests", "fixtures")
+TEST_PFB = os.path.join(ROOT, "testPfb")
 
 
 def fixture(p_name):
     return os.path.join(FIXTURES, p_name)
+
+
+def test_pfb(p_name):
+    return os.path.join(TEST_PFB, p_name)
 
 
 class PfbDiffTests(unittest.TestCase):
@@ -57,6 +62,20 @@ class PfbDiffTests(unittest.TestCase):
             and t_change.type == "added"
             and t_change.after_path == "TowBat/UIAct/Layout"
             for t_change in t_result.changes
+        ))
+
+    def test_repeated_subtree_does_not_steal_same_path_match(self):
+        t_result = diff_prefabs(test_pfb("gui_hcll.prefab"), test_pfb("hb_hcll.prefab"))
+        t_moved_paths = [
+            (t_change.before_path, t_change.after_path)
+            for t_change in t_result.changes
+            if t_change.category == "node" and t_change.type == "moved"
+        ]
+        self.assertNotIn(("Hcll/ndAYMLLv/ndLight", "Hcll/ndLv/ndLight"), t_moved_paths)
+        self.assertTrue(any(
+            t_match["before_path"] == "Hcll/ndLv/ndLight"
+            and t_match["after_path"] == "Hcll/ndLv/ndLight"
+            for t_match in t_result.matches
         ))
 
     def test_rename_is_not_delete_plus_add(self):
