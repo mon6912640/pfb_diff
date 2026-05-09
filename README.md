@@ -4,7 +4,7 @@
 
 ## 用法
 
-### 桌面 GUI（推荐日常对比）
+### 方式一：桌面 GUI（推荐日常对比）
 
 ```bash
 python gui.py
@@ -19,7 +19,7 @@ python gui.py
 pip install tkinterdnd2
 ```
 
-### CLI（脚本 / CI 集成）
+### 方式二：CLI（脚本 / CI 集成）
 
 ```bash
 python pfb_diff.py diff \
@@ -57,6 +57,23 @@ myflCnt_diff_20260506_153012.json
 python pfb_diff.py diff --before old.prefab --after new.prefab --fail-on-risk high
 ```
 
+### 方式三：打包成 exe（无 Python 环境可用）
+
+```bash
+compile.bat
+```
+
+双击执行后会在项目根目录生成 `PfbDiff.exe`。
+
+**exe 特点**：
+- **双击运行** → 启动 GUI 窗口
+- **命令行调用** → 支持所有 CLI 参数，例如：
+  ```bash
+  PfbDiff.exe diff --before old.prefab --after new.prefab --out report.html
+  ```
+
+报告统一生成到 `PfbDiff.exe` 同级目录的 `reports/` 文件夹下。
+
 ## 输出
 
 - **JSON**：稳定结构，供测试、后续三方 diff 和 UI 复用。
@@ -67,8 +84,10 @@ python pfb_diff.py diff --before old.prefab --after new.prefab --fail-on-risk hi
 
 ```
 pfb_diff/
-├── gui.py                # 桌面 GUI 入口（Tkinter + tkinterdnd2）
+├── main.py               # 统一入口（有参数走 CLI，无参数启动 GUI）
+├── gui.py                # 桌面 GUI（Tkinter + tkinterdnd2）
 ├── pfb_diff.py           # CLI 入口
+├── compile.bat           # PyInstaller 打包脚本
 ├── diff_engine.py        # 核心 diff 引擎
 ├── matcher.py            # 节点匹配引擎
 ├── report_html_tree.py   # 树形 HTML 报告生成器
