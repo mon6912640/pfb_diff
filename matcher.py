@@ -22,9 +22,9 @@ def match_documents(p_before: PrefabDocument, p_after: PrefabDocument) -> List[N
     t_candidate_index = _build_candidate_index(t_unmatched_after)
 
     for t_before in list(t_unmatched_before):
-        t_after = _find_exact_identity(t_before, t_unmatched_after)
+        t_after, t_reasons = _find_exact_identity(t_before, t_unmatched_after)
         if t_after:
-            t_matches.append(NodeMatch(t_before, t_after, "confirmed", 100, ["same_identity_hash"]))
+            t_matches.append(NodeMatch(t_before, t_after, "confirmed", 100, t_reasons))
             t_unmatched_before.remove(t_before)
             t_unmatched_after.remove(t_after)
 
@@ -104,11 +104,20 @@ def _index_add(p_bucket: Dict[str, List[PrefabNode]], p_key: str, p_node: Prefab
     p_bucket.setdefault(str(p_key), []).append(p_node)
 
 
-def _find_exact_identity(p_before: PrefabNode, p_after_nodes: List[PrefabNode]) -> Optional[PrefabNode]:
-    for t_after in p_after_nodes:
-        if p_before.fingerprint.identity_hash == t_after.fingerprint.identity_hash:
-            return t_after
-    return None
+def _find_exact_identity(p_before: PrefabNode, p_after_nodes: List[PrefabNode]) -> Tuple[Optional[PrefabNode], List[str]]:
+    t_matches = [
+        t_after for t_after in p_after_nodes
+        if p_before.fingerprint.identity_hash == t_after.fingerprint.identity_hash
+    ]
+    if not t_matches:
+        return None, []
+    if len(t_matches) == 1:
+        return t_matches[0], ["same_identity_hash"]
+
+    for t_after in t_matches:
+        if p_before.path == t_after.path:
+            return t_after, ["same_identity_hash", "same_path"]
+    return None, []
 
 
 def _rank_candidates(p_before: PrefabNode, p_after_nodes: List[PrefabNode]) -> List[Tuple[PrefabNode, int, List[str]]]:

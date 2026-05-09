@@ -44,6 +44,21 @@ class PfbDiffTests(unittest.TestCase):
         self.assertNotIn(("node", "deleted"), t_types)
         self.assertNotIn(("node", "added"), t_types)
 
+    def test_same_identity_prefers_same_path_when_ambiguous(self):
+        t_result = diff_prefabs(fixture("ambiguous_identity_before.prefab"), fixture("ambiguous_identity_after.prefab"))
+        t_moved_paths = [
+            (t_change.before_path, t_change.after_path)
+            for t_change in t_result.changes
+            if t_change.category == "node" and t_change.type == "moved"
+        ]
+        self.assertNotIn(("TowBat/tc/SpriteBg3/Layout", "TowBat/UIAct/Layout"), t_moved_paths)
+        self.assertTrue(any(
+            t_change.category == "node"
+            and t_change.type == "added"
+            and t_change.after_path == "TowBat/UIAct/Layout"
+            for t_change in t_result.changes
+        ))
+
     def test_rename_is_not_delete_plus_add(self):
         t_result = diff_prefabs(fixture("base.prefab"), fixture("renamed.prefab"))
         t_types = [(t_change.category, t_change.type) for t_change in t_result.changes]
