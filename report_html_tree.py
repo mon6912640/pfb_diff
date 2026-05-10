@@ -25,7 +25,7 @@ _CHANGE_META: Dict[Tuple[str, str], Tuple[str, str, str]] = {
     ("component", "order_changed"): ("chg-component", "组件顺序", "#f97316"),
     ("component", "changed"): ("chg-component", "组件变化", "#f97316"),
     ("match", "uncertain"): ("chg-uncertain", "低置信度", "#dc2626"),
-    ("match", "ambiguous"): ("chg-uncertain", "多候选", "#dc2626"),
+    ("match", "ambiguous"): ("chg-ambiguous", "多候选风险", "#f97316"),
 }
 
 _CHANGE_PRIORITY = [
@@ -149,10 +149,23 @@ def _render_node(p_node: PrefabNode, p_idx: Dict[str, List[Change]], p_match_idx
         for t in p_node.component_types()
     )
 
+    # Check if this node is an ambiguous alternative (clone hint badge)
+    t_clone_badge = ""
+    if p_side == "after" and p_node.internal_path:
+        for m in p_match_idx.values():
+            if m.get("status") != "ambiguous":
+                continue
+            for alt in m.get("alternatives", []):
+                if alt.get("internal_path") == p_node.internal_path:
+                    t_clone_badge = '<span class="badge" style="background:#f97316;color:#fff;font-size:9px;padding:1px 5px;margin-left:2px;">备选</span>'
+                    break
+            if t_clone_badge:
+                break
+
     t_badge_html = "".join(
         '<span class="badge" style="background:%s;color:#fff">%s</span>' % (t["color"], _e(t["label"]))
         for t in t_badges
-    )
+    ) + t_clone_badge
 
     t_children_html = ""
     if t_has_children:

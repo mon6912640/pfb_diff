@@ -67,6 +67,11 @@ a { color: #60a5fa; }
     cursor: pointer; transition: background 0.12s; min-height: 26px;
 }
 .node-row:hover { background: #1e293b; }
+.node-row.active {
+    background: #1e3a5f;
+    outline: 1px solid #3b82f6;
+    outline-offset: -1px;
+}
 .toggle {
     display: inline-block; width: 14px; text-align: center; font-size: 10px;
     color: #64748b; cursor: pointer; margin-right: 4px; user-select: none;
@@ -83,6 +88,7 @@ a { color: #60a5fa; }
 
 /* Change colors on rows */
 .node-row.chg-uncertain { border-left-color: #dc2626; background: rgba(220,38,38,0.12); }
+.node-row.chg-ambiguous { border-left-color: #f97316; background: rgba(249,115,22,0.10); }
 .node-row.chg-deleted    { border-left-color: #ef4444; background: rgba(239,68,68,0.10); }
 .node-row.chg-added      { border-left-color: #22c55e; background: rgba(34,197,94,0.10); }
 .node-row.chg-moved-renamed { border-left-color: #6366f1; background: rgba(99,102,241,0.10); }
@@ -126,6 +132,29 @@ a { color: #60a5fa; }
     padding: 6px 8px; overflow: auto; color: #cbd5e1; font-size: 11px; line-height: 1.4;
 }
 .detail-item .path-info { color: #64748b; font-size: 11px; margin-top: 4px; }
+
+/* Ambiguous match card */
+.ambiguous-card { border-left: 3px solid #dc2626; }
+.ambiguous-body { padding: 4px 0 8px; }
+.amb-label { font-size: 10px; color: #64748b; text-transform: uppercase; margin-bottom: 2px; }
+.amb-path { color: #e2e8f0; font-size: 12px; font-weight: 500; }
+.amb-score { color: #60a5fa; font-size: 11px; margin-top: 2px; }
+.amb-diff { color: #fca5a5; font-size: 11px; margin-top: 6px; padding-top: 6px; border-top: 1px solid #1e293b; }
+.amb-note { color: #94a3b8; font-size: 11px; margin-top: 8px; padding: 8px; background: #0f172a; border-radius: 4px; line-height: 1.5; }
+.clone-hint { color: #fde047; font-size: 11px; margin-top: 8px; padding: 6px 8px; background: rgba(253,224,71,0.08); border: 1px solid rgba(253,224,71,0.2); border-radius: 4px; line-height: 1.4; }
+.alt-section { margin-top: 8px; border-top: 1px solid #1e293b; padding-top: 8px; }
+.alt-toggle { cursor: pointer; color: #94a3b8; font-size: 11px; display: flex; align-items: center; gap: 6px; user-select: none; }
+.alt-toggle:hover { color: #e2e8f0; }
+.alt-arrow { font-size: 10px; width: 12px; display: inline-block; }
+.alt-list { margin-top: 6px; }
+.alt-item { padding: 6px 8px; background: #0f172a; border-radius: 4px; margin: 4px 0; border: 1px solid #1e293b; }
+.alt-header { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+.alt-rank { color: #64748b; font-weight: 600; min-width: 20px; }
+.alt-path { color: #e2e8f0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.alt-score { color: #60a5fa; font-weight: 600; }
+.alt-reasons { color: #64748b; font-size: 10px; margin-top: 3px; line-height: 1.3; }
+.alt-locate-btn { margin-top: 6px; padding: 2px 10px; font-size: 10px; background: #1e293b; border: 1px solid #334155; color: #94a3b8; border-radius: 3px; cursor: pointer; }
+.alt-locate-btn:hover { background: #334155; color: #e2e8f0; }
 
 /* Modal */
 .modal-overlay {
@@ -399,7 +428,34 @@ function toggleNode(el) {
     }
 }
 
+function _highlightPair(row) {
+    document.querySelectorAll('.node-row.active').forEach(function(el) {
+        el.classList.remove('active');
+    });
+    row.classList.add('active');
+
+    const internalPath = row.dataset.internalPath;
+    const side = row.dataset.side;
+    const match = ALL_MATCHES.find(function(m) {
+        if (side === 'before') return m.before_internal_path === internalPath;
+        return m.after_internal_path === internalPath;
+    });
+    if (!match) return;
+
+    const otherPath = side === 'before' ? match.after_internal_path : match.before_internal_path;
+    const otherSide = side === 'before' ? 'after' : 'before';
+    const otherRows = document.querySelectorAll('.node-row[data-side="' + otherSide + '"]');
+    for (let i = 0; i < otherRows.length; i++) {
+        if (otherRows[i].dataset.internalPath === otherPath) {
+            otherRows[i].classList.add('active');
+            otherRows[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
+            break;
+        }
+    }
+}
+
 function onNodeClick(row) {
+    _highlightPair(row);
     const internalPath = row.dataset.internalPath;
     const side = row.dataset.side;
     const panel = document.getElementById('detailPanel');
@@ -425,6 +481,9 @@ function onNodeClick(row) {
     }
 
     const htmlParts = related.map(function(c) {
+        if (c.category === 'match' && c.type === 'ambiguous') {
+            return _renderAmbiguousCard(c, side, internalPath);
+        }
         const riskClass = c.risk === 'high' ? 'risk-high' : (c.risk === 'medium' ? 'risk-medium' : 'risk-low');
         const riskText = c.risk === 'high' ? '高' : (c.risk === 'medium' ? '中' : '低');
         const typeText = _typeText(c);
@@ -439,12 +498,25 @@ function onNodeClick(row) {
         } else if (c.beforePath || c.afterPath) {
             pathHtml = '<div class="path-info">' + _esc(c.beforePath || c.afterPath) + '</div>';
         }
+        let cloneHint = '';
+        if (c.category === 'node' && c.type === 'added' && c.afterInternalPath) {
+            const ctx = _findAmbiguousContext(c.afterInternalPath);
+            if (ctx) {
+                const beforePath = _esc(ctx.match.before_path || '—');
+                const conf = ctx.match.confidence;
+                cloneHint = '<div class="clone-hint">' +
+                    '<div>⚠️ 该节点是多候选匹配的备选项</div>' +
+                    '<div style="margin-top:4px;color:#fde047;">与 before 的 <b>' + beforePath + '</b> 高度相似（匹配分数 ' + conf + ' 分），请人工确认是否为复制产生。</div>' +
+                    '<button class="alt-locate-btn" style="margin-top:6px;" onclick="event.stopPropagation();_highlightPairByPath(\'' + _esc(ctx.match.before_internal_path) + '\', \'before\')">定位到 before 对应节点</button>' +
+                '</div>';
+            }
+        }
         return '<div class="detail-item">' +
             '<div class="detail-header">' +
                 '<span class="risk-tag ' + riskClass + '">' + riskText + '</span>' +
                 '<span class="type-label">' + _esc(typeText) + '</span>' +
             '</div>' +
-            fieldHtml + pathHtml + valueDiffHtml +
+            fieldHtml + pathHtml + valueDiffHtml + cloneHint +
         '</div>';
     });
 
@@ -461,6 +533,91 @@ function onNodeClick(row) {
         ? '<div style="color:' + confidenceColor + ';font-size:11px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #1e293b;">节点匹配置信度: ' + sharedConfidence + scoreBtn + '</div>'
         : '';
     panel.innerHTML = groupHeader + htmlParts.join('');
+}
+
+function _renderAmbiguousCard(c, side, internalPath) {
+    const alts = (c.details && c.details.alternatives) || [];
+    const diff = alts.length > 0 ? (c.confidence - alts[0].score) : 0;
+    let altHtml = '';
+    if (alts.length > 0) {
+        altHtml = '<div class="alt-section">' +
+            '<div class="alt-toggle" onclick="event.stopPropagation();var list=this.nextElementSibling;var arrow=this.querySelector(\'.alt-arrow\');list.style.display=list.style.display===\'none\'?\'block\':\'none\';arrow.textContent=list.style.display===\'none\'?\'▶\':\'▼\';">' +
+            '<span class="alt-arrow">▶</span> 其他相似候选 (' + alts.length + '个)' +
+            '</div>' +
+            '<div class="alt-list" style="display:none;">' +
+            alts.map(function(a, idx) {
+                const reasons = (a.reasons || []).slice(0, 3).map(function(r) {
+                    return SCORE_REASON_LABELS[r] || r;
+                }).join('、');
+                return '<div class="alt-item">' +
+                    '<div class="alt-header">' +
+                        '<span class="alt-rank">#' + (idx + 2) + '</span>' +
+                        '<span class="alt-path">' + _esc(a.path) + '</span>' +
+                        '<span class="alt-score">' + a.score + '分</span>' +
+                    '</div>' +
+                    '<div class="alt-reasons">' + (reasons || '—') + '</div>' +
+                    '<button class="alt-locate-btn" onclick="event.stopPropagation();_locateAlternative(\'' + _esc(a.internal_path) + '\')">定位到节点</button>' +
+                '</div>';
+            }).join('') +
+            '</div>' +
+        '</div>';
+    }
+    return '<div class="detail-item ambiguous-card">' +
+        '<div class="detail-header">' +
+            '<span class="risk-tag risk-high">高</span>' +
+            '<span class="type-label">多候选匹配风险</span>' +
+        '</div>' +
+        '<div class="ambiguous-body">' +
+            '<div class="amb-current">' +
+                '<div class="amb-label">当前匹配</div>' +
+                '<div class="amb-path">' + _esc(c.afterPath || c.beforePath || '—') + '</div>' +
+                '<div class="amb-score">分数: ' + c.confidence + '分</div>' +
+            '</div>' +
+            '<div class="amb-diff">与第二候选分差: ' + diff + '分</div>' +
+            '<div class="amb-note">工具只能做一对一匹配。未被选中的 after 候选仍会作为新增节点显示，请人工确认实际对应关系。</div>' +
+        '</div>' +
+        altHtml +
+    '</div>';
+}
+
+function _findAmbiguousContext(internalPath) {
+    for (const m of ALL_MATCHES) {
+        if (m.status !== 'ambiguous' || !m.alternatives) continue;
+        for (const alt of m.alternatives) {
+            if (alt.internal_path === internalPath) {
+                return {match: m, alternative: alt};
+            }
+        }
+    }
+    return null;
+}
+
+function _highlightPairByPath(internalPath, side) {
+    const rows = document.querySelectorAll('.node-row[data-side="' + side + '"]');
+    for (let i = 0; i < rows.length; i++) {
+        if (rows[i].dataset.internalPath === internalPath) {
+            rows[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
+            rows[i].classList.add('active');
+            setTimeout(function() {
+                rows[i].classList.remove('active');
+            }, 2000);
+            break;
+        }
+    }
+}
+
+function _locateAlternative(internalPath) {
+    const rows = document.querySelectorAll('.node-row[data-side="after"]');
+    for (let i = 0; i < rows.length; i++) {
+        if (rows[i].dataset.internalPath === internalPath) {
+            rows[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
+            rows[i].classList.add('active');
+            setTimeout(function() {
+                rows[i].classList.remove('active');
+            }, 2000);
+            break;
+        }
+    }
 }
 
 function _typeText(c) {
