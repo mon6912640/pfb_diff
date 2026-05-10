@@ -38,6 +38,7 @@ python -m PyInstaller ^
     --hidden-import tkinterdnd2 ^
     --hidden-import tkinterdnd2.TkinterDnD ^
     --add-data "icon.ico;." ^
+    --add-data "templates;templates" ^
     main.py
 
 if errorlevel 1 (
