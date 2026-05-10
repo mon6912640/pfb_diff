@@ -357,7 +357,7 @@ a { color: #60a5fa; }
 
 /* Detail panel */
 .detail-panel {
-    flex-shrink: 0; height: 220px; background: #0f172a; border-top: 1px solid #1e293b;
+    flex-shrink: 0; height: 380px; background: #0f172a; border-top: 1px solid #1e293b;
     overflow: auto; padding: 10px 16px; font-size: 12px;
 }
 .detail-panel .placeholder { color: #64748b; text-align: center; padding-top: 60px; }
@@ -431,7 +431,8 @@ a { color: #60a5fa; }
 .diff-add { background: rgba(34,197,94,0.12); color: #86efac; }
 .diff-mod { background: rgba(245,158,11,0.12); color: #fde047; }
 .diff-simple { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; padding: 8px; background: #0b1120; border: 1px solid #1e293b; border-radius: 4px; margin-top: 6px; }
-.diff-old { color: #fca5a5; text-decoration: line-through; margin-right: 6px; }
+.struct-diff { background: #0b1120; border: 1px solid #1e293b; border-radius: 4px; padding: 6px; margin-top: 6px; }
+.diff-old { color: #fca5a5; margin-right: 6px; }
 .diff-new { color: #86efac; }
 .diff-arrow { color: #94a3b8; margin: 0 6px; }
 
@@ -614,21 +615,25 @@ function onNodeClick(row) {
         } else if (c.beforePath || c.afterPath) {
             pathHtml = '<div class="path-info">' + _esc(c.beforePath || c.afterPath) + '</div>';
         }
-        let confidenceHtml = '';
-        if (c.confidence && c.confidence < 100) {
-            confidenceHtml = '<span style="color:#94a3b8;margin-left:8px">置信度: ' + c.confidence + '</span>';
-        }
         return '<div class="detail-item">' +
             '<div class="detail-header">' +
                 '<span class="risk-tag ' + riskClass + '">' + riskText + '</span>' +
                 '<span class="type-label">' + _esc(typeText) + '</span>' +
-                confidenceHtml +
             '</div>' +
             fieldHtml + pathHtml + valueDiffHtml +
         '</div>';
     });
 
-    panel.innerHTML = htmlParts.join('');
+    const sharedConfidence = related.length > 0 && related[0].confidence && related[0].confidence < 100
+        ? related[0].confidence : 0;
+    let confidenceColor = '#94a3b8';
+    if (sharedConfidence >= 92) confidenceColor = '#86efac';
+    else if (sharedConfidence >= 74) confidenceColor = '#fde047';
+    else if (sharedConfidence >= 58) confidenceColor = '#fca5a5';
+    const groupHeader = sharedConfidence
+        ? '<div style="color:' + confidenceColor + ';font-size:11px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #1e293b;">节点匹配置信度: ' + sharedConfidence + '</div>'
+        : '';
+    panel.innerHTML = groupHeader + htmlParts.join('');
 }
 
 function _typeText(c) {
@@ -651,53 +656,154 @@ function _typeText(c) {
 function renderValueDiff(before, after) {
     if (before === undefined && after === undefined) return '';
     if (before === null && after === null) return '';
-    // Simple values
     const bType = typeof before;
     const aType = typeof after;
     if ((bType !== 'object' || before === null) && (aType !== 'object' || after === null)) {
         return '<div class="diff-simple"><span class="diff-old">' + _esc(String(before)) + '</span><span class="diff-arrow">→</span><span class="diff-new">' + _esc(String(after)) + '</span></div>';
     }
-    return renderJsonDiff(before, after);
+    return renderStructuredDiff(before, after);
 }
 
-function renderJsonDiff(before, after) {
-    const bStr = JSON.stringify(before, null, 2);
-    const aStr = JSON.stringify(after, null, 2);
-    if (bStr === aStr) {
-        return '<pre>' + _esc(bStr) + '</pre>';
+function renderStructuredDiff(before, after, depth, seen) {
+    depth = depth || 0;
+    if (depth > 5) return '<div class="diff-simple" style="color:#64748b">[结构过深，已折叠]</div>';
+    seen = seen || {before: new WeakSet(), after: new WeakSet()};
+    if (before !== null && typeof before === 'object') {
+        if (seen.before.has(before)) return '<div class="diff-simple" style="color:#64748b">[循环引用]</div>';
+        seen.before.add(before);
     }
-    const bLines = bStr.split('\\n');
-    const aLines = aStr.split('\\n');
-    const aSet = new Set(aLines);
-    const bSet = new Set(bLines);
-    let html = '<div class="json-diff">';
-    html += '<div class="json-diff-col"><div class="json-diff-title">旧值</div>';
-    for (let i = 0; i < bLines.length; i++) {
-        const line = bLines[i];
-        const al = aLines[i];
-        if (aSet.has(line)) {
-            html += '<div class="diff-line diff-same">' + _esc(line) + '</div>';
-        } else if (al !== undefined && line !== al && !aSet.has(line)) {
-            html += '<div class="diff-line diff-mod">' + _esc(line) + '</div>';
+    if (after !== null && typeof after === 'object') {
+        if (seen.after.has(after)) return '<div class="diff-simple" style="color:#64748b">[循环引用]</div>';
+        seen.after.add(after);
+    }
+    if (before === null || before === undefined || after === null || after === undefined) {
+        return fallbackTextDiff(before, after);
+    }
+    if (typeof before !== 'object' || typeof after !== 'object') {
+        return '<div class="diff-simple"><span class="diff-old">' + _esc(String(before)) + '</span><span class="diff-arrow">→</span><span class="diff-new">' + _esc(String(after)) + '</span></div>';
+    }
+    if (Array.isArray(before) !== Array.isArray(after)) {
+        return fallbackTextDiff(before, after);
+    }
+    if (_jsonEqual(before, after)) {
+        return '<pre style="color:#64748b;margin:0">' + _esc(JSON.stringify(before, null, 2)) + '</pre>';
+    }
+    if (Array.isArray(before)) {
+        return renderArrayDiff(before, after, depth, seen);
+    }
+    const keys = Array.from(new Set([...Object.keys(before), ...Object.keys(after)])).sort();
+    const indent = '  '.repeat(depth);
+    const rows = [];
+    for (const key of keys) {
+        const hasB = key in before;
+        const hasA = key in after;
+        const bVal = before[key];
+        const aVal = after[key];
+        const label = indent + '"' + key + '": ';
+        if (!hasB) {
+            rows.push(renderNested(label, null, aVal, 'add', depth, seen));
+        } else if (!hasA) {
+            rows.push(renderNested(label, bVal, null, 'del', depth, seen));
+        } else if (_jsonEqual(bVal, aVal)) {
+            rows.push(renderNested(label, bVal, aVal, 'same', depth, seen));
+        } else if (typeof bVal === 'object' && bVal !== null && typeof aVal === 'object' && aVal !== null) {
+            rows.push('<div class="diff-line diff-same">' + _esc(label) + '{</div>');
+            rows.push(renderStructuredDiff(bVal, aVal, depth + 1, seen));
+            rows.push('<div class="diff-line diff-same">' + _esc(indent) + '}</div>');
         } else {
-            html += '<div class="diff-line diff-del">' + _esc(line) + '</div>';
+            rows.push('<div class="diff-line diff-mod">' + _esc(label) + '<span class="diff-old">' + _esc(JSON.stringify(bVal)) + '</span><span class="diff-arrow">→</span><span class="diff-new">' + _esc(JSON.stringify(aVal)) + '</span></div>');
         }
     }
-    html += '</div>';
-    html += '<div class="json-diff-col"><div class="json-diff-title">新值</div>';
-    for (let i = 0; i < aLines.length; i++) {
-        const line = aLines[i];
-        const bl = bLines[i];
-        if (bSet.has(line)) {
-            html += '<div class="diff-line diff-same">' + _esc(line) + '</div>';
-        } else if (bl !== undefined && line !== bl && !bSet.has(line)) {
-            html += '<div class="diff-line diff-mod">' + _esc(line) + '</div>';
+    return '<div class="struct-diff">' + rows.join('') + '</div>';
+}
+
+function renderNested(label, bVal, aVal, mode, depth, seen) {
+    const val = mode === 'del' ? bVal : aVal;
+    if (val !== null && typeof val === 'object') {
+        if (mode === 'same') {
+            const s = JSON.stringify(val);
+            return '<div class="diff-line diff-same">' + _esc(label) + '<span style="color:#64748b">' + _esc(s.length > 60 ? s.slice(0, 57) + '...' : s) + '</span></div>';
+        }
+        const isArr = Array.isArray(val);
+        const cls = mode === 'add' ? 'diff-add' : 'diff-del';
+        const other = isArr ? [] : {};
+        const rows = [];
+        rows.push('<div class="diff-line ' + cls + '">' + _esc(label) + (isArr ? '[' : '{') + '</div>');
+        rows.push(renderStructuredDiff(mode === 'add' ? other : val, mode === 'add' ? val : other, depth + 1, seen));
+        rows.push('<div class="diff-line ' + cls + '">' + _esc('  '.repeat(depth)) + (isArr ? ']' : '}') + '</div>');
+        return rows.join('');
+    }
+    const s = JSON.stringify(val);
+    const color = mode === 'same' ? '#64748b' : (mode === 'add' ? '#86efac' : '#fca5a5');
+    const cls = mode === 'same' ? 'diff-same' : (mode === 'add' ? 'diff-add' : 'diff-del');
+    return '<div class="diff-line ' + cls + '">' + _esc(label) + '<span style="color:' + color + '">' + _esc(s) + '</span></div>';
+}
+
+function renderArrayDiff(before, after, depth, seen) {
+    if (before.length > 30 || after.length > 30) {
+        return '<div class="diff-simple" style="color:#64748b">[数组 ' + before.length + ' → ' + after.length + ' 项，已折叠]</div>';
+    }
+    const hasUuid = before.concat(after).every(function(x) { return x && typeof x === 'object' && x.__uuid__; });
+    if (hasUuid) return renderUuidArrayDiff(before, after, depth, seen);
+    const maxLen = Math.max(before.length, after.length);
+    const indent = '  '.repeat(depth);
+    const rows = [];
+    for (let i = 0; i < maxLen; i++) {
+        const hasB = i < before.length;
+        const hasA = i < after.length;
+        const label = indent + '[' + i + ']: ';
+        if (!hasB) {
+            rows.push(renderNested(label, null, after[i], 'add', depth, seen));
+        } else if (!hasA) {
+            rows.push(renderNested(label, before[i], null, 'del', depth, seen));
+        } else if (_jsonEqual(before[i], after[i])) {
+            rows.push(renderNested(label, before[i], after[i], 'same', depth, seen));
+        } else if (typeof before[i] === 'object' && before[i] !== null && typeof after[i] === 'object' && after[i] !== null) {
+            rows.push('<div class="diff-line diff-same">' + _esc(label) + '{</div>');
+            rows.push(renderStructuredDiff(before[i], after[i], depth + 1, seen));
+            rows.push('<div class="diff-line diff-same">' + _esc(indent) + '}</div>');
         } else {
-            html += '<div class="diff-line diff-add">' + _esc(line) + '</div>';
+            rows.push('<div class="diff-line diff-mod">' + _esc(label) + '<span class="diff-old">' + _esc(JSON.stringify(before[i])) + '</span><span class="diff-arrow">→</span><span class="diff-new">' + _esc(JSON.stringify(after[i])) + '</span></div>');
         }
     }
-    html += '</div></div>';
-    return html;
+    return '<div class="struct-diff">' + rows.join('') + '</div>';
+}
+
+function renderUuidArrayDiff(before, after, depth, seen) {
+    const bMap = {}, aMap = {};
+    before.forEach(function(x, i) { bMap[x.__uuid__] = {item: x, idx: i}; });
+    after.forEach(function(x, i) { aMap[x.__uuid__] = {item: x, idx: i}; });
+    const all = new Set([...Object.keys(bMap), ...Object.keys(aMap)]);
+    const indent = '  '.repeat(depth);
+    const rows = [];
+    for (const uuid of all) {
+        const bItem = bMap[uuid];
+        const aItem = aMap[uuid];
+        const label = indent + '"' + uuid.substring(0, 8) + '...": ';
+        if (!bItem) {
+            rows.push(renderNested(label, null, aItem.item, 'add', depth, seen));
+        } else if (!aItem) {
+            rows.push(renderNested(label, bItem.item, null, 'del', depth, seen));
+        } else if (_jsonEqual(bItem.item, aItem.item)) {
+            rows.push(renderNested(label, bItem.item, aItem.item, 'same', depth, seen));
+        } else {
+            rows.push('<div class="diff-line diff-same">' + _esc(label) + '{</div>');
+            rows.push(renderStructuredDiff(bItem.item, aItem.item, depth + 1, seen));
+            rows.push('<div class="diff-line diff-same">' + _esc(indent) + '}</div>');
+        }
+    }
+    return '<div class="struct-diff">' + rows.join('') + '</div>';
+}
+
+function _jsonEqual(a, b) {
+    return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function fallbackTextDiff(before, after) {
+    return '<div class="json-diff">' +
+        '<div class="json-diff-col"><div class="json-diff-title">旧值</div><pre>' + _esc(JSON.stringify(before, null, 2)) + '</pre></div>' +
+        '<div class="json-diff-col"><div class="json-diff-title">新值</div><pre>' + _esc(JSON.stringify(after, null, 2)) + '</pre></div>' +
+        '</div>';
 }
 
 function _esc(s) {
