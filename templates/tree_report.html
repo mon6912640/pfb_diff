@@ -182,15 +182,21 @@ a { color: #60a5fa; }
 .diff-arrow { color: #94a3b8; margin: 0 6px; }
 
 /* Score breakdown */
-.score-breakdown { margin-top: 8px; }
+.score-breakdown { margin-top: 4px; }
+.score-header-row {
+    display: grid; grid-template-columns: 48px 120px 1fr 48px;
+    gap: 8px; padding: 4px 6px; font-size: 10px; color: #64748b;
+    border-bottom: 1px solid #1e293b; margin-bottom: 4px;
+}
 .score-part {
-    display: flex; align-items: center; gap: 8px; padding: 4px 6px;
-    border-radius: 4px; margin: 2px 0; font-size: 12px;
+    display: grid; grid-template-columns: 48px 120px 1fr 48px;
+    gap: 8px; align-items: center; padding: 4px 6px;
+    border-radius: 4px; margin: 1px 0; font-size: 12px;
 }
 .score-part:hover { background: #0f172a; }
 .score-kind {
     display: inline-block; font-size: 10px; padding: 1px 5px; border-radius: 3px;
-    font-weight: 600; min-width: 52px; text-align: center; text-transform: uppercase;
+    font-weight: 600; min-width: 36px; text-align: center;
 }
 .score-kind-add { background: #14532d; color: #86efac; }
 .score-kind-penalty { background: #7f1d1d; color: #fca5a5; }
@@ -199,17 +205,18 @@ a { color: #60a5fa; }
 .score-kind-floor { background: #1e3a8a; color: #60a5fa; }
 .score-kind-identity { background: #1e3a8a; color: #60a5fa; }
 .score-kind-info { background: #334155; color: #94a3b8; }
-.score-reason { flex: 1; color: #e2e8f0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
-.score-value { font-weight: 600; min-width: 40px; text-align: right; }
+.score-reason { color: #e2e8f0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.score-desc { color: #64748b; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.score-value { font-weight: 600; text-align: right; }
 .score-value.positive { color: #86efac; }
 .score-value.negative { color: #fca5a5; }
 .score-value.neutral { color: #60a5fa; }
-.score-details { color: #64748b; font-size: 10px; margin-top: 2px; padding-left: 60px; }
 .score-total-row {
     display: flex; align-items: center; justify-content: space-between;
     padding: 8px 6px; margin-top: 8px; border-top: 1px solid #334155;
     font-size: 13px; font-weight: 600; color: #f8fafc;
 }
+.score-total-value { font-size: 14px; }
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -612,6 +619,55 @@ function closeModal(e) {
     }
 }
 
+const SCORE_REASON_LABELS = {
+    'same_name': '节点名称相同',
+    'low_info_name': '低信息名称',
+    'same_structure_hash': '结构完全相同',
+    'component_overlap': '组件类型重合',
+    'child_name_overlap': '子节点名称重合',
+    'same_visual_hash': '视觉表现相同',
+    'resource_overlap': '资源引用重合',
+    'label_overlap': 'Label文本重合',
+    'same_behavior_hash': '行为逻辑相同',
+    'script_overlap': '脚本类型重合',
+    'event_overlap': '事件绑定重合',
+    'same_parent_path': '父路径相同',
+    'same_path': '完整路径相同',
+    'same_sibling_index': '兄弟序号相同',
+    'matched_parent': '父节点已匹配',
+    'different_matched_parent': '父节点不匹配',
+    'low_information_node_penalty': '低信息量节点',
+    'same_internal_path_anchor': '内部路径锚点',
+    'same_internal_path_anchor_floor': '内部路径保底',
+    'same_path_anchor': '显示路径锚点',
+    'same_path_anchor_floor': '显示路径保底',
+    'same_unique_identity_hash': '唯一身份确认',
+    'duplicate_identity': '身份重复',
+    'duplicate_identity_cap': '身份重复封顶',
+};
+
+const SCORE_KIND_LABELS = {
+    'add': '加分',
+    'penalty': '扣分',
+    'overlap': '重合',
+    'identity': '确认',
+    'floor': '保底',
+    'cap': '封顶',
+    'info': '标记',
+};
+
+function _fmtScoreDetails(part) {
+    const d = part.details;
+    if (!d || Object.keys(d).length === 0) return '';
+    if (part.kind === 'overlap') {
+        return '交集 ' + d.intersection + ' / 并集 ' + d.union + '（满分' + d.weight + '）';
+    }
+    if (part.kind === 'floor' || part.kind === 'cap') {
+        return '修正前 ' + d.before + ' → 修正后 ' + d.after;
+    }
+    return _esc(JSON.stringify(d));
+}
+
 function openScoreModal(internalPath, side) {
     const match = ALL_MATCHES.find(function(m) {
         if (side === 'before') return m.before_internal_path === internalPath;
@@ -624,22 +680,29 @@ function openScoreModal(internalPath, side) {
         return;
     }
     let html = '<div class="score-breakdown">';
+    html += '<div class="score-header-row">' +
+        '<span class="score-col-kind">类型</span>' +
+        '<span class="score-col-reason">评分项</span>' +
+        '<span class="score-col-desc">说明</span>' +
+        '<span class="score-col-value">分值</span>' +
+        '</div>';
     for (const part of match.score.parts) {
         const kindClass = 'score-kind score-kind-' + part.kind;
         const valueClass = part.value > 0 ? 'positive' : (part.value < 0 ? 'negative' : 'neutral');
         const sign = part.value > 0 ? '+' : '';
+        const kindLabel = SCORE_KIND_LABELS[part.kind] || part.kind;
+        const reasonLabel = SCORE_REASON_LABELS[part.reason] || part.reason;
+        const detailText = _fmtScoreDetails(part);
         html += '<div class="score-part">' +
-            '<span class="' + kindClass + '">' + part.kind + '</span>' +
-            '<span class="score-reason">' + _esc(part.reason) + '</span>' +
+            '<span class="' + kindClass + '">' + kindLabel + '</span>' +
+            '<span class="score-reason" title="' + _esc(part.reason) + '">' + _esc(reasonLabel) + '</span>' +
+            '<span class="score-desc">' + (detailText ? _esc(detailText) : '—') + '</span>' +
             '<span class="score-value ' + valueClass + '">' + sign + part.value + '</span>' +
             '</div>';
-        if (part.details && Object.keys(part.details).length > 0) {
-            html += '<div class="score-details">' + _esc(JSON.stringify(part.details)) + '</div>';
-        }
     }
     html += '<div class="score-total-row">' +
         '<span>总分</span>' +
-        '<span>' + match.score.total + '</span>' +
+        '<span class="score-total-value">' + match.score.total + '</span>' +
         '</div>';
     html += '</div>';
     body.innerHTML = html;
