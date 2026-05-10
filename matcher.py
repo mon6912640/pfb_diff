@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from config import AMBIGUOUS_DELTA, CONFIRMED_SCORE, LOW_INFO_NODE_NAMES, PROBABLE_SCORE, UNCERTAIN_SCORE
 from prefab_model import PrefabDocument, PrefabNode
@@ -13,6 +13,108 @@ class NodeMatch:
     confidence: int = 0
     reasons: List[str] = field(default_factory=list)
     alternatives: List[Dict[str, object]] = field(default_factory=list)
+    score: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class ScorePart:
+    kind: str
+    reason: str
+    value: int
+    details: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        t_value = {
+            "kind": self.kind,
+            "reason": self.reason,
+            "value": self.value,
+        }
+        if self.details:
+            t_value["details"] = self.details
+        return t_value
+
+
+@dataclass
+class MatchScore:
+    total: int
+    reasons: List[str] = field(default_factory=list)
+    parts: List[ScorePart] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "total": self.total,
+            "reasons": list(self.reasons),
+            "parts": [t_part.to_dict() for t_part in self.parts],
+        }
+
+
+class ScoreBuilder:
+    def __init__(self) -> None:
+        self.total = 0
+        self.reasons: List[str] = []
+        self.parts: List[ScorePart] = []
+
+    @classmethod
+    def from_score(cls, p_score: MatchScore) -> "ScoreBuilder":
+        t_builder = cls()
+        t_builder.total = p_score.total
+        t_builder.reasons = list(p_score.reasons)
+        t_builder.parts = list(p_score.parts)
+        return t_builder
+
+    def add(self, p_reason: str, p_value: int, p_details: Optional[Dict[str, Any]] = None) -> None:
+        self._add_part("add", p_reason, p_value, p_details)
+        self.total += p_value
+
+    def penalty(self, p_reason: str, p_value: int, p_details: Optional[Dict[str, Any]] = None) -> None:
+        t_value = -abs(p_value)
+        self._add_part("penalty", p_reason, t_value, p_details)
+        self.total += t_value
+
+    def overlap(self, p_left: List[str], p_right: List[str], p_weight: int, p_reason: str) -> None:
+        if not p_left or not p_right:
+            return
+        t_left = set([str(t_item) for t_item in p_left])
+        t_right = set([str(t_item) for t_item in p_right])
+        t_union = t_left | t_right
+        if not t_union:
+            return
+        t_intersection = t_left & t_right
+        t_score = int(round(p_weight * (float(len(t_intersection)) / float(len(t_union)))))
+        if not t_score:
+            return
+        self._add_part("overlap", p_reason, t_score, {
+            "weight": p_weight,
+            "intersection": len(t_intersection),
+            "union": len(t_union),
+        })
+        self.total += t_score
+
+    def cap(self, p_reason: str, p_value: int) -> None:
+        t_before = self.total
+        self.total = min(self.total, p_value)
+        self._add_part("cap", p_reason, p_value, {"before": t_before, "after": self.total})
+
+    def floor(self, p_reason: str, p_value: int) -> None:
+        t_before = self.total
+        self.total = max(self.total, p_value)
+        self._add_part("floor", p_reason, p_value, {"before": t_before, "after": self.total})
+
+    def identity(self, p_reason: str, p_value: int) -> None:
+        self._add_part("identity", p_reason, p_value)
+        self.total = p_value
+
+    def info(self, p_reason: str, p_details: Optional[Dict[str, Any]] = None) -> None:
+        self._add_part("info", p_reason, 0, p_details)
+
+    def build(self) -> MatchScore:
+        self.total = max(0, min(100, self.total))
+        return MatchScore(self.total, list(self.reasons), list(self.parts))
+
+    def _add_part(self, p_kind: str, p_reason: str, p_value: int, p_details: Optional[Dict[str, Any]] = None) -> None:
+        self.parts.append(ScorePart(p_kind, p_reason, p_value, p_details or {}))
+        if p_reason not in self.reasons:
+            self.reasons.append(p_reason)
 
 
 def match_documents(p_before: PrefabDocument, p_after: PrefabDocument) -> List[NodeMatch]:
@@ -21,27 +123,27 @@ def match_documents(p_before: PrefabDocument, p_after: PrefabDocument) -> List[N
     t_unmatched_after = list(p_after.nodes)
 
     for t_before in list(t_unmatched_before):
-        t_after, t_score, t_reasons = _find_same_internal_path_anchor(t_before, t_unmatched_after)
+        t_after, t_score = _find_same_internal_path_anchor(t_before, t_unmatched_after)
         if t_after:
-            t_matches.append(NodeMatch(t_before, t_after, _status_from_score(t_score, -1), t_score, t_reasons))
+            t_matches.append(_node_match(t_before, t_after, _status_from_score(t_score.total, -1), t_score))
             t_unmatched_before.remove(t_before)
             t_unmatched_after.remove(t_after)
 
     t_before_path_counts = _path_counts(t_unmatched_before)
     t_after_path_counts = _path_counts(t_unmatched_after)
     for t_before in list(t_unmatched_before):
-        t_after, t_score, t_reasons = _find_same_path_anchor(t_before, t_unmatched_after, t_before_path_counts, t_after_path_counts)
+        t_after, t_score = _find_same_path_anchor(t_before, t_unmatched_after, t_before_path_counts, t_after_path_counts)
         if t_after:
-            t_matches.append(NodeMatch(t_before, t_after, _status_from_score(t_score, -1), t_score, t_reasons))
+            t_matches.append(_node_match(t_before, t_after, _status_from_score(t_score.total, -1), t_score))
             t_unmatched_before.remove(t_before)
             t_unmatched_after.remove(t_after)
 
     t_before_identity_counts = _identity_counts(t_unmatched_before)
     t_after_identity_counts = _identity_counts(t_unmatched_after)
     for t_before in list(t_unmatched_before):
-        t_after, t_reasons = _find_exact_identity(t_before, t_unmatched_after, t_before_identity_counts, t_after_identity_counts)
+        t_after, t_score = _find_exact_identity(t_before, t_unmatched_after, t_before_identity_counts, t_after_identity_counts)
         if t_after:
-            t_matches.append(NodeMatch(t_before, t_after, "confirmed", 100, t_reasons))
+            t_matches.append(_node_match(t_before, t_after, "confirmed", t_score))
             t_unmatched_before.remove(t_before)
             t_unmatched_after.remove(t_after)
 
@@ -51,17 +153,16 @@ def match_documents(p_before: PrefabDocument, p_after: PrefabDocument) -> List[N
         t_ranked = _rank_candidates(t_before, t_candidates, t_matches, t_before_identity_counts, t_after_identity_counts)
         if not t_ranked:
             continue
-        t_after, t_score, t_reasons = t_ranked[0]
-        t_second_score = t_ranked[1][1] if len(t_ranked) > 1 else -1
-        t_status = _status_from_score(t_score, t_second_score)
+        t_after, t_score = t_ranked[0]
+        t_second_score = t_ranked[1][1].total if len(t_ranked) > 1 else -1
+        t_status = _status_from_score(t_score.total, t_second_score)
         if t_status == "unmatched":
             continue
-        t_matches.append(NodeMatch(
+        t_matches.append(_node_match(
             t_before,
             t_after,
             t_status,
             t_score,
-            t_reasons,
             _alternatives(t_ranked[1:5]),
         ))
         t_unmatched_before.remove(t_before)
@@ -73,6 +174,24 @@ def match_documents(p_before: PrefabDocument, p_after: PrefabDocument) -> List[N
         t_matches.append(NodeMatch(None, t_after, "unmatched", 0, ["added"]))
 
     return t_matches
+
+
+def _node_match(
+    p_before: Optional[PrefabNode],
+    p_after: Optional[PrefabNode],
+    p_status: str,
+    p_score: MatchScore,
+    p_alternatives: Optional[List[Dict[str, object]]] = None,
+) -> NodeMatch:
+    return NodeMatch(
+        p_before,
+        p_after,
+        p_status,
+        p_score.total,
+        list(p_score.reasons),
+        p_alternatives or [],
+        p_score.to_dict(),
+    )
 
 
 def _identity_counts(p_nodes: List[PrefabNode]) -> Dict[str, int]:
@@ -137,16 +256,17 @@ def _index_add(p_bucket: Dict[str, List[PrefabNode]], p_key: str, p_node: Prefab
     p_bucket.setdefault(str(p_key), []).append(p_node)
 
 
-def _find_same_internal_path_anchor(p_before: PrefabNode, p_after_nodes: List[PrefabNode]) -> Tuple[Optional[PrefabNode], int, List[str]]:
+def _find_same_internal_path_anchor(p_before: PrefabNode, p_after_nodes: List[PrefabNode]) -> Tuple[Optional[PrefabNode], MatchScore]:
     for t_after in p_after_nodes:
         if p_before.internal_path != t_after.internal_path:
             continue
-        t_score, t_reasons = _score_pair(p_before, t_after)
+        t_score = _score_pair(p_before, t_after)
         if _is_safe_same_path_match(p_before, t_after):
-            if "same_internal_path_anchor" not in t_reasons:
-                t_reasons.append("same_internal_path_anchor")
-            return t_after, max(t_score, PROBABLE_SCORE), t_reasons
-    return None, 0, []
+            t_builder = ScoreBuilder.from_score(t_score)
+            t_builder.info("same_internal_path_anchor")
+            t_builder.floor("same_internal_path_anchor_floor", PROBABLE_SCORE)
+            return t_after, t_builder.build()
+    return None, MatchScore(0, [], [])
 
 
 def _find_same_path_anchor(
@@ -154,18 +274,19 @@ def _find_same_path_anchor(
     p_after_nodes: List[PrefabNode],
     p_before_path_counts: Dict[str, int],
     p_after_path_counts: Dict[str, int],
-) -> Tuple[Optional[PrefabNode], int, List[str]]:
+) -> Tuple[Optional[PrefabNode], MatchScore]:
     if p_before_path_counts.get(p_before.path, 0) != 1 or p_after_path_counts.get(p_before.path, 0) != 1:
-        return None, 0, []
+        return None, MatchScore(0, [], [])
     for t_after in p_after_nodes:
         if p_before.path != t_after.path:
             continue
-        t_score, t_reasons = _score_pair(p_before, t_after)
+        t_score = _score_pair(p_before, t_after)
         if _is_safe_same_path_match(p_before, t_after):
-            if "same_path_anchor" not in t_reasons:
-                t_reasons.append("same_path_anchor")
-            return t_after, max(t_score, PROBABLE_SCORE), t_reasons
-    return None, 0, []
+            t_builder = ScoreBuilder.from_score(t_score)
+            t_builder.info("same_path_anchor")
+            t_builder.floor("same_path_anchor_floor", PROBABLE_SCORE)
+            return t_after, t_builder.build()
+    return None, MatchScore(0, [], [])
 
 
 def _is_safe_same_path_match(p_before: PrefabNode, p_after: PrefabNode) -> bool:
@@ -195,19 +316,21 @@ def _find_exact_identity(
     p_after_nodes: List[PrefabNode],
     p_before_identity_counts: Dict[str, int],
     p_after_identity_counts: Dict[str, int],
-) -> Tuple[Optional[PrefabNode], List[str]]:
+) -> Tuple[Optional[PrefabNode], MatchScore]:
     t_hash = p_before.fingerprint.identity_hash
     if p_before_identity_counts.get(t_hash, 0) != 1 or p_after_identity_counts.get(t_hash, 0) != 1:
-        return None, []
+        return None, MatchScore(0, [], [])
     if not _has_strong_identity_features(p_before):
-        return None, []
+        return None, MatchScore(0, [], [])
     t_matches = [
         t_after for t_after in p_after_nodes
         if t_hash == t_after.fingerprint.identity_hash
     ]
     if not t_matches:
-        return None, []
-    return t_matches[0], ["same_unique_identity_hash"]
+        return None, MatchScore(0, [], [])
+    t_builder = ScoreBuilder()
+    t_builder.identity("same_unique_identity_hash", 100)
+    return t_matches[0], t_builder.build()
 
 
 def _rank_candidates(
@@ -216,17 +339,19 @@ def _rank_candidates(
     p_existing_matches: List[NodeMatch],
     p_before_identity_counts: Dict[str, int],
     p_after_identity_counts: Dict[str, int],
-) -> List[Tuple[PrefabNode, int, List[str]]]:
+) -> List[Tuple[PrefabNode, MatchScore]]:
     t_ranked = []
     t_parent_map = _matched_parent_map(p_existing_matches)
     for t_after in p_after_nodes:
-        t_score, t_reasons = _score_pair(p_before, t_after, t_parent_map)
+        t_score = _score_pair(p_before, t_after, t_parent_map)
         if _is_duplicate_identity_pair(p_before, t_after, p_before_identity_counts, p_after_identity_counts):
-            t_score = min(t_score, CONFIRMED_SCORE - 1)
-            t_reasons.append("duplicate_identity")
-        if t_score >= UNCERTAIN_SCORE:
-            t_ranked.append((t_after, t_score, t_reasons))
-    return sorted(t_ranked, key=lambda p_item: p_item[1], reverse=True)
+            t_builder = ScoreBuilder.from_score(t_score)
+            t_builder.cap("duplicate_identity_cap", CONFIRMED_SCORE - 1)
+            t_builder.info("duplicate_identity")
+            t_score = t_builder.build()
+        if t_score.total >= UNCERTAIN_SCORE:
+            t_ranked.append((t_after, t_score))
+    return sorted(t_ranked, key=lambda p_item: p_item[1].total, reverse=True)
 
 
 def _matched_parent_map(p_matches: List[NodeMatch]) -> Dict[str, str]:
@@ -253,61 +378,49 @@ def _has_strong_identity_features(p_node: PrefabNode) -> bool:
     return bool(p_node.script_types() or _resources(p_node) or _label_texts(p_node) or _events(p_node))
 
 
-def _score_pair(p_before: PrefabNode, p_after: PrefabNode, p_parent_map: Optional[Dict[str, str]] = None) -> Tuple[int, List[str]]:
-    t_score = 0
-    t_reasons = []
+def _score_pair(p_before: PrefabNode, p_after: PrefabNode, p_parent_map: Optional[Dict[str, str]] = None) -> MatchScore:
+    t_score = ScoreBuilder()
     if p_before.name == p_after.name:
-        t_score += 12
-        t_reasons.append("same_name")
+        t_score.add("same_name", 12)
     elif _is_low_info(p_before.name) or _is_low_info(p_after.name):
-        t_score -= 4
-        t_reasons.append("low_info_name")
+        t_score.penalty("low_info_name", 4)
 
     if p_before.fingerprint.structure_hash == p_after.fingerprint.structure_hash:
-        t_score += 18
-        t_reasons.append("same_structure_hash")
+        t_score.add("same_structure_hash", 18)
     else:
-        t_score += _overlap_score(p_before.component_types(), p_after.component_types(), 18, "component_overlap", t_reasons)
-        t_score += _overlap_score([t_child.name for t_child in p_before.children], [t_child.name for t_child in p_after.children], 8, "child_name_overlap", t_reasons)
+        t_score.overlap(p_before.component_types(), p_after.component_types(), 18, "component_overlap")
+        t_score.overlap([t_child.name for t_child in p_before.children], [t_child.name for t_child in p_after.children], 8, "child_name_overlap")
 
     if p_before.fingerprint.visual_hash == p_after.fingerprint.visual_hash:
-        t_score += 20
-        t_reasons.append("same_visual_hash")
+        t_score.add("same_visual_hash", 20)
     else:
-        t_score += _overlap_score(_resources(p_before), _resources(p_after), 18, "resource_overlap", t_reasons)
-        t_score += _overlap_score(_label_texts(p_before), _label_texts(p_after), 14, "label_overlap", t_reasons)
+        t_score.overlap(_resources(p_before), _resources(p_after), 18, "resource_overlap")
+        t_score.overlap(_label_texts(p_before), _label_texts(p_after), 14, "label_overlap")
 
     if p_before.fingerprint.behavior_hash == p_after.fingerprint.behavior_hash:
-        t_score += 22
-        t_reasons.append("same_behavior_hash")
+        t_score.add("same_behavior_hash", 22)
     else:
-        t_score += _overlap_score(p_before.script_types(), p_after.script_types(), 18, "script_overlap", t_reasons)
-        t_score += _overlap_score(_events(p_before), _events(p_after), 18, "event_overlap", t_reasons)
+        t_score.overlap(p_before.script_types(), p_after.script_types(), 18, "script_overlap")
+        t_score.overlap(_events(p_before), _events(p_after), 18, "event_overlap")
 
     if p_before.parent_path == p_after.parent_path:
-        t_score += 8
-        t_reasons.append("same_parent_path")
+        t_score.add("same_parent_path", 8)
     if p_before.path == p_after.path:
-        t_score += 8
-        t_reasons.append("same_path")
+        t_score.add("same_path", 8)
     if p_before.sibling_index == p_after.sibling_index:
-        t_score += 4
-        t_reasons.append("same_sibling_index")
+        t_score.add("same_sibling_index", 4)
 
     if p_parent_map and p_before.parent_path in p_parent_map:
         t_expected_after_parent = p_parent_map[p_before.parent_path]
         if t_expected_after_parent == p_after.parent_path:
-            t_score += 14
-            t_reasons.append("matched_parent")
+            t_score.add("matched_parent", 14)
         elif not _has_strong_content_match(p_before, p_after):
-            t_score -= 10
-            t_reasons.append("different_matched_parent")
+            t_score.penalty("different_matched_parent", 10)
 
     if not p_before.component_types() and not p_after.component_types() and _is_low_info(p_before.name) and _is_low_info(p_after.name):
-        t_score -= 18
-        t_reasons.append("low_information_node_penalty")
+        t_score.penalty("low_information_node_penalty", 18)
 
-    return max(0, min(100, t_score)), t_reasons
+    return t_score.build()
 
 
 def _has_strong_content_match(p_before: PrefabNode, p_after: PrefabNode) -> bool:
@@ -334,20 +447,6 @@ def _status_from_score(p_score: int, p_second_score: int) -> str:
     return "unmatched"
 
 
-def _overlap_score(p_left: List[str], p_right: List[str], p_weight: int, p_reason: str, p_reasons: List[str]) -> int:
-    if not p_left or not p_right:
-        return 0
-    t_left = set([str(t_item) for t_item in p_left])
-    t_right = set([str(t_item) for t_item in p_right])
-    t_union = t_left | t_right
-    if not t_union:
-        return 0
-    t_score = int(round(p_weight * (float(len(t_left & t_right)) / float(len(t_union)))))
-    if t_score:
-        p_reasons.append(p_reason)
-    return t_score
-
-
 def _resources(p_node: PrefabNode) -> List[str]:
     return [str(t_item.get("uuid")) for t_item in p_node.resources if t_item.get("uuid")]
 
@@ -370,10 +469,10 @@ def _is_low_info(p_name: str) -> bool:
     return str(p_name).lower() in LOW_INFO_NODE_NAMES
 
 
-def _alternatives(p_ranked: List[Tuple[PrefabNode, int, List[str]]]) -> List[Dict[str, object]]:
+def _alternatives(p_ranked: List[Tuple[PrefabNode, MatchScore]]) -> List[Dict[str, object]]:
     return [{
         "path": t_after.path,
         "internal_path": t_after.internal_path,
-        "score": t_score,
-        "reasons": t_reasons,
-    } for t_after, t_score, t_reasons in p_ranked]
+        "score": t_score.total,
+        "reasons": t_score.reasons,
+    } for t_after, t_score in p_ranked]

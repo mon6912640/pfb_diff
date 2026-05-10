@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import tempfile
@@ -25,6 +26,26 @@ def test_pfb(p_name):
     return os.path.join(TEST_PFB, p_name)
 
 
+def score_part(p_match, p_reason):
+    for t_part in p_match.get("score", {}).get("parts", []):
+        if t_part.get("reason") == p_reason:
+            return t_part
+    return None
+
+
+def duplicate_identity_prefab(p_first_parent, p_second_parent):
+    return [
+        {"__type__": "cc.Prefab", "data": {"__id__": 1}},
+        {"__type__": "cc.Node", "_name": "Root", "_children": [{"__id__": 2}, {"__id__": 4}], "_components": []},
+        {"__type__": "cc.Node", "_name": p_first_parent, "_parent": {"__id__": 1}, "_children": [{"__id__": 3}], "_components": []},
+        {"__type__": "cc.Node", "_name": "Prize", "_parent": {"__id__": 2}, "_children": [], "_components": [{"__id__": 6}]},
+        {"__type__": "cc.Node", "_name": p_second_parent, "_parent": {"__id__": 1}, "_children": [{"__id__": 5}], "_components": []},
+        {"__type__": "cc.Node", "_name": "Prize", "_parent": {"__id__": 4}, "_children": [], "_components": [{"__id__": 7}]},
+        {"__type__": "cc.Sprite", "node": {"__id__": 3}, "_spriteFrame": {"__uuid__": "same-sprite"}},
+        {"__type__": "cc.Sprite", "node": {"__id__": 5}, "_spriteFrame": {"__uuid__": "same-sprite"}},
+    ]
+
+
 class PfbDiffTests(unittest.TestCase):
     def test_identical_prefab_has_no_changes(self):
         t_result = diff_prefabs(fixture("base.prefab"), fixture("base.prefab"))
@@ -48,6 +69,14 @@ class PfbDiffTests(unittest.TestCase):
         self.assertIn(("node", "moved"), t_types)
         self.assertNotIn(("node", "deleted"), t_types)
         self.assertNotIn(("node", "added"), t_types)
+
+    def test_moved_match_includes_score_parts(self):
+        t_result = diff_prefabs(fixture("base.prefab"), fixture("moved.prefab"))
+        t_match = next(t_match for t_match in t_result.matches if t_match["before_path"] == "Root/BtnReward")
+        self.assertEqual(100, t_match["score"]["total"])
+        self.assertEqual("identity", score_part(t_match, "same_unique_identity_hash")["kind"])
+        t_change = next(t_change for t_change in t_result.changes if t_change.category == "node" and t_change.type == "moved")
+        self.assertEqual(t_match["score"], t_change.details["score"])
 
     def test_same_identity_prefers_same_path_when_ambiguous(self):
         t_result = diff_prefabs(fixture("ambiguous_identity_before.prefab"), fixture("ambiguous_identity_after.prefab"))
@@ -107,6 +136,42 @@ class PfbDiffTests(unittest.TestCase):
             and t_change.before_internal_path == "DDP[0]/btnTS[7]"
             for t_change in t_result.changes
         ))
+
+    def test_score_breakdown_records_ddp_anchor_and_identity_rules(self):
+        t_result = diff_prefabs(test_pfb("gui_ddp.prefab"), test_pfb("hb_ddp.prefab"))
+        t_anchor = next(t_match for t_match in t_result.matches if t_match["before_internal_path"] == "DDP[0]/btnTS[7]")
+        t_floor = score_part(t_anchor, "same_internal_path_anchor_floor")
+        self.assertEqual("floor", t_floor["kind"])
+        self.assertEqual(74, t_floor["value"])
+
+        t_identity = next(t_match for t_match in t_result.matches if t_match["before_internal_path"] == "DDP[0]/btnTS[14]")
+        self.assertEqual("DDP[0]/NdBtn[11]/btnTS[0]", t_identity["after_internal_path"])
+        self.assertEqual("identity", score_part(t_identity, "same_unique_identity_hash")["kind"])
+
+    def test_overlap_score_parts_include_set_math_details(self):
+        t_result = diff_prefabs(test_pfb("gui_ddp.prefab"), test_pfb("hb_ddp.prefab"))
+        t_match = next(t_match for t_match in t_result.matches if score_part(t_match, "child_name_overlap"))
+        t_part = score_part(t_match, "child_name_overlap")
+        self.assertEqual("overlap", t_part["kind"])
+        self.assertIn("weight", t_part["details"])
+        self.assertIn("intersection", t_part["details"])
+        self.assertIn("union", t_part["details"])
+
+    def test_duplicate_identity_score_records_cap(self):
+        with tempfile.TemporaryDirectory() as t_dir:
+            t_before = os.path.join(t_dir, "before.prefab")
+            t_after = os.path.join(t_dir, "after.prefab")
+            with open(t_before, "w", encoding="utf-8") as t_file:
+                json.dump(duplicate_identity_prefab("Left", "Right"), t_file)
+            with open(t_after, "w", encoding="utf-8") as t_file:
+                json.dump(duplicate_identity_prefab("Top", "Bottom"), t_file)
+
+            t_result = diff_prefabs(t_before, t_after)
+
+        t_match = next(t_match for t_match in t_result.matches if score_part(t_match, "duplicate_identity_cap"))
+        t_cap = score_part(t_match, "duplicate_identity_cap")
+        self.assertEqual("cap", t_cap["kind"])
+        self.assertEqual(91, t_cap["value"])
 
     def test_rename_is_not_delete_plus_add(self):
         t_result = diff_prefabs(fixture("base.prefab"), fixture("renamed.prefab"))

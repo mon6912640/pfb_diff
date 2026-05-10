@@ -66,7 +66,7 @@ def _diff_match(p_result: DiffResult, p_match: NodeMatch) -> None:
             before_internal_path=t_before.internal_path,
             after_internal_path=t_after.internal_path,
             confidence=p_match.confidence,
-            details={"reasons": p_match.reasons, "alternatives": p_match.alternatives},
+            details={"reasons": p_match.reasons, "alternatives": p_match.alternatives, "score": p_match.score},
         ))
 
     if t_before.path != t_after.path or t_before.name != t_after.name:
@@ -86,7 +86,7 @@ def _diff_match(p_result: DiffResult, p_match: NodeMatch) -> None:
             before_internal_path=t_before.internal_path,
             after_internal_path=t_after.internal_path,
             confidence=p_match.confidence,
-            details={"before_name": t_before.name, "after_name": t_after.name, "reasons": p_match.reasons},
+            details={"before_name": t_before.name, "after_name": t_after.name, "reasons": p_match.reasons, "score": p_match.score},
         ))
 
     _diff_props(p_result, t_before, t_after, "node.props", t_before.props, t_after.props, p_match.confidence)
@@ -246,7 +246,7 @@ def _resource_map(p_node) -> Dict[str, str]:
 
 
 def _match_to_dict(p_match: NodeMatch) -> Dict[str, Any]:
-    return {
+    t_value = {
         "status": p_match.status,
         "confidence": p_match.confidence,
         "before_path": p_match.before.path if p_match.before else None,
@@ -256,6 +256,9 @@ def _match_to_dict(p_match: NodeMatch) -> Dict[str, Any]:
         "reasons": p_match.reasons,
         "alternatives": p_match.alternatives,
     }
+    if p_match.score is not None:
+        t_value["score"] = p_match.score
+    return t_value
 
 
 def _node_brief(p_node) -> Dict[str, Any]:
