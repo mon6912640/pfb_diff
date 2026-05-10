@@ -196,7 +196,7 @@ a { color: #60a5fa; }
 .modal-body {
     padding: 16px 18px; overflow: auto; font-size: 12px; line-height: 1.7; color: #cbd5e1;
 }
-.modal-body h3 { margin: 14px 0 8px; font-size: 13px; color: #f8fafc; }
+.modal-body h3 { margin: 18px 0 10px; font-size: 15px; font-weight: 700; color: #60a5fa; border-left: 3px solid #60a5fa; padding-left: 8px; }
 .modal-body p { margin: 6px 0; }
 .modal-body ul, .modal-body ol { margin: 6px 0; padding-left: 18px; color: #cbd5e1; }
 .modal-body li { margin: 3px 0; }
@@ -343,23 +343,27 @@ a { color: #60a5fa; }
     <p><b>置信度</b>表示工具判断「before 和 after 中两个节点是否为同一个节点」的量化把握程度（0 ~ 100）。</p>
     <p>分数不是「相似度」，而是综合了节点名称、组件结构、视觉属性、行为特征和上下文位置后的加权评分。</p>
 
+    <h3>为什么需要置信度？</h3>
+    <p>普通文本 diff 只看路径，会把「移动节点」误报为「删除 + 新增」。PfbDiff 用指纹匹配来识别同一节点，但如果没有置信度机制，当两个 prefab 存在大量相似节点时（如列表中的多个 Item），很容易把 A 错配成 B，导致真正的变化被掩盖。</p>
+    <p>置信度机制把这种风险量化出来：<b>不敢确定的就告诉用户，让用户做最终判断。</b></p>
+
     <h3>评分维度</h3>
     <table>
         <tr><th>维度</th><th>匹配条件</th><th>加分</th></tr>
         <tr><td>名称</td><td>节点名相同</td><td>+12</td></tr>
         <tr><td>名称</td><td>低信息名（bg/label/icon 等）</td><td>-4</td></tr>
-        <tr><td>结构</td><td>structure_hash 完全相同</td><td>+18</td></tr>
-        <tr><td>结构</td><td>组件类型重叠（Jaccard）</td><td>最多 +18</td></tr>
-        <tr><td>结构</td><td>子节点名称重叠（Jaccard）</td><td>最多 +8</td></tr>
-        <tr><td>视觉</td><td>visual_hash 完全相同</td><td>+20</td></tr>
-        <tr><td>视觉</td><td>资源 uuid 重叠（Jaccard）</td><td>最多 +18</td></tr>
-        <tr><td>视觉</td><td>Label 文本重叠（Jaccard）</td><td>最多 +14</td></tr>
-        <tr><td>行为</td><td>behavior_hash 完全相同</td><td>+22</td></tr>
-        <tr><td>行为</td><td>脚本类型重叠（Jaccard）</td><td>最多 +18</td></tr>
-        <tr><td>行为</td><td>事件 handler 重叠（Jaccard）</td><td>最多 +18</td></tr>
-        <tr><td>上下文</td><td>父路径相同</td><td>+8</td></tr>
-        <tr><td>上下文</td><td>完整路径相同</td><td>+8</td></tr>
-        <tr><td>上下文</td><td>兄弟下标相同</td><td>+4</td></tr>
+        <tr><td>结构</td><td>结构指纹完全相同</td><td>+18</td></tr>
+        <tr><td>结构</td><td>组件类型重合</td><td>最多 +18</td></tr>
+        <tr><td>结构</td><td>子节点名称重合</td><td>最多 +8</td></tr>
+        <tr><td>视觉</td><td>视觉指纹完全相同</td><td>+20</td></tr>
+        <tr><td>视觉</td><td>资源 UUID 重合</td><td>最多 +18</td></tr>
+        <tr><td>视觉</td><td>Label 文本重合</td><td>最多 +14</td></tr>
+        <tr><td>行为</td><td>行为指纹完全相同</td><td>+22</td></tr>
+        <tr><td>行为</td><td>脚本类型重合</td><td>最多 +18</td></tr>
+        <tr><td>行为</td><td>事件绑定重合</td><td>最多 +18</td></tr>
+        <tr><td>位置</td><td>父路径相同</td><td>+8</td></tr>
+        <tr><td>位置</td><td>完整路径相同</td><td>+8</td></tr>
+        <tr><td>位置</td><td>兄弟序号相同</td><td>+4</td></tr>
         <tr><td>惩罚</td><td>无组件 + 低信息名称</td><td>-18</td></tr>
     </table>
 
@@ -372,25 +376,41 @@ a { color: #60a5fa; }
         <tr><td><span class="score-tag tag-unmatched">&lt; 58</span></td><td>unmatched</td><td>视为新增或删除</td></tr>
     </table>
 
+    <h3>节点标签说明</h3>
+    <p>树形节点上的彩色标签表示该节点的变化类型：</p>
+    <table>
+        <tr><th>标签</th><th>含义</th></tr>
+        <tr><td><span class="score-tag" style="background:#22c55e">新增</span></td><td>after 中新增的节点</td></tr>
+        <tr><td><span class="score-tag" style="background:#ef4444">删除</span></td><td>before 中被删除的节点</td></tr>
+        <tr><td><span class="score-tag" style="background:#3b82f6">移动</span></td><td>节点改变了父节点位置</td></tr>
+        <tr><td><span class="score-tag" style="background:#a855f7">重命名</span></td><td>节点名字变了</td></tr>
+        <tr><td><span class="score-tag" style="background:#6366f1">移动+重命名</span></td><td>同时移动和重命名</td></tr>
+        <tr><td><span class="score-tag" style="background:#60a5fa">子节点顺序</span></td><td>子节点的排列顺序变了</td></tr>
+        <tr><td><span class="score-tag" style="background:#f59e0b">字段</span></td><td>属性字段值变化（位置、颜色、文本等）</td></tr>
+        <tr><td><span class="score-tag" style="background:#06b6d4">资源</span></td><td>引用的图片、动画等资源变了</td></tr>
+        <tr><td><span class="score-tag" style="background:#ec4899">事件</span></td><td>按钮点击事件等交互绑定变了</td></tr>
+        <tr><td><span class="score-tag" style="background:#f97316">组件</span></td><td>组件增删、顺序变化或属性修改</td></tr>
+        <tr><td><span class="score-tag" style="background:#dc2626">低置信度</span></td><td>匹配不确定，可能错配</td></tr>
+        <tr><td><span class="score-tag" style="background:#f97316">多候选风险</span></td><td>存在多个相似候选，工具无法确定</td></tr>
+        <tr><td><span class="score-tag" style="background:#f97316">备选</span></td><td>新增节点是多候选匹配的备选项</td></tr>
+    </table>
+
     <h3>多候选（Ambiguous）</h3>
     <p>当最高分与第二名差距 &lt;= 4 分时，即使总分达到 confirmed/probable，也会被标记为 <b>ambiguous</b>（多候选）。</p>
-    <p>这表示工具发现了多个"equally likely"的匹配对象，必须由人工判断哪个才是真正的对应节点。</p>
+    <p>这表示工具发现了多个高度相似的匹配对象，无法确定哪个才是真正的对应节点。详情面板中会展示<strong>其他相似候选列表</strong>，供人工判断。</p>
+    <p><b>注意：</b>工具只能做一对一匹配。未被选中的 after 候选仍会作为<strong>新增节点</strong>显示。新增节点如果同时也是多候选备选项，会带有 🟠「<b>备选</b>」标识。</p>
 
     <h3>低信息节点</h3>
     <p>名称属于以下名单的节点被视为低信息节点，名称权重会被降低：</p>
     <p><code>bg, icon, label, title, num, txt, text, node, con, item, btn</code></p>
-    <p>这些节点通常数量多、特征少，容易互相错配。工具会提高资源 uuid、组件结构和父子关系在评分中的权重来辅助消歧。</p>
-
-    <h3>为什么需要置信度？</h3>
-    <p>普通文本 diff 只看路径，会把「移动节点」误报为「删除 + 新增」。PfbDiff 用指纹匹配来识别同一节点，但如果没有置信度机制，当两个 prefab 存在大量相似节点时（如列表中的多个 Item），很容易把 A 错配成 B，导致真正的变化被掩盖。</p>
-    <p>置信度机制把这种风险量化出来：<b>不敢确定的就告诉用户，让用户做最终判断。</b></p>
+    <p>这些节点通常数量多、特征少，容易互相错配。工具会提高资源 UUID、组件结构和父子关系在评分中的权重来辅助消歧。</p>
 
     <h3>低置信度在报告中如何识别？</h3>
     <p>在树形对比报告中，低置信度节点有以下特征：</p>
     <ul>
-        <li>节点行左侧边框为 <b>深红色（#dc2626）</b></li>
-        <li>Badge 标签显示「<b>低置信度</b>」或「<b>多候选</b>」</li>
-        <li>点击节点后，详情面板显示 <code>置信度: 62</code> 之类的分数</li>
+        <li>Badge 标签显示「<b>低置信度</b>」「<b>多候选风险</b>」或「<b>备选</b>」</li>
+        <li>点击节点后，详情面板显示 <code>节点匹配置信度: 62</code> 之类的分数</li>
+        <li>ambiguous 匹配会展示「其他相似候选」折叠列表</li>
     </ul>
 
     <h3>低置信度的风险分级</h3>
@@ -398,18 +418,21 @@ a { color: #60a5fa; }
         <tr><th>节点特征</th><th>风险等级</th><th>说明</th></tr>
         <tr><td>低置信度 + <b>包含脚本或事件</b></td><td><span class="score-tag tag-uncertain">高风险</span></td><td>错配可能掩盖业务逻辑变化，必须人工确认</td></tr>
         <tr><td>低置信度 + 纯 UI 展示节点</td><td><span class="score-tag tag-probable">中风险</span></td><td>视觉可能错位，但不会影响代码逻辑</td></tr>
+        <tr><td>低置信度 + 空节点/无组件</td><td><span class="score-tag tag-probable">中风险</span></td><td>即使无组件，低置信度本身仍有错配风险</td></tr>
     </table>
+    <p>注：低置信度匹配（uncertain/ambiguous）最低为<strong>中风险</strong>。confirmed/probable 的正常匹配为低风险，无需特别关注。</p>
 
     <h3>看到低置信度时应该怎么做？</h3>
     <ol>
-        <li><b>点击节点</b>查看详情面板，看置信度分数和匹配依据（如 <code>same_name</code>、<code>resource_overlap</code>）</li>
+        <li><b>点击节点</b>查看详情面板，看置信度分数和匹配依据</li>
+        <li><b>查看评分详情</b>，了解具体哪些维度加分、哪些维度扣分</li>
         <li><b>对比左右两栏</b>该节点的路径、组件、资源，判断工具配得对不对</li>
         <li><b>如果配错了</b>：在人工合并时忽略工具的匹配结论，按你自己的判断处理</li>
         <li><b>如果配对了</b>：可以忽略这个警告，继续审查其他变化</li>
     </ol>
 
     <h3>一句话总结</h3>
-    <p><b>低置信度 = 工具在「举手投降」。</b>它发现了一些相似特征，但不敢打包票说这是同一个节点。深红色就是它的求救信号——请你来做最终判断，避免错配导致真正变化被掩盖。</p>
+    <p><b>低置信度 = 工具在「举手投降」。</b>它发现了一些相似特征，但不敢打包票说这是同一个节点。醒目颜色就是它的求救信号——请你来做最终判断，避免错配导致真正变化被掩盖。</p>
 </div>
 </div>
 </div>
@@ -937,6 +960,12 @@ const SCORE_KIND_LABELS = {
             _showTooltip(legendItem, '<div class="tt-title">风险等级说明</div><div class="tt-reasons">' + title + '</div>');
             return;
         }
+        const topLegendItem = e.target.closest('.legend-item');
+        if (topLegendItem) {
+            const title = topLegendItem.getAttribute('data-tip') || '';
+            _showTooltip(topLegendItem, '<div class="tt-title">变化类型说明</div><div class="tt-reasons">' + title + '</div>');
+            return;
+        }
         const riskTag = e.target.closest('.risk-tag');
         if (riskTag) {
             const title = riskTag.getAttribute('data-tip') || '';
@@ -946,7 +975,7 @@ const SCORE_KIND_LABELS = {
     });
 
     document.addEventListener('mouseout', function(e) {
-        if (e.target.closest('.node-row') || e.target.closest('.risk-legend-item') || e.target.closest('.risk-tag')) {
+        if (e.target.closest('.node-row') || e.target.closest('.risk-legend-item') || e.target.closest('.risk-tag') || e.target.closest('.legend-item')) {
             tt.style.display = 'none';
         }
     });

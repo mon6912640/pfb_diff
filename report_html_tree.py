@@ -10,22 +10,22 @@ from prefab_parser import parse_prefab
 from prefab_model import PrefabDocument, PrefabNode
 
 
-_CHANGE_META: Dict[Tuple[str, str], Tuple[str, str, str]] = {
-    ("node", "added"): ("chg-added", "新增", "#22c55e"),
-    ("node", "deleted"): ("chg-deleted", "删除", "#ef4444"),
-    ("node", "moved"): ("chg-moved", "移动", "#3b82f6"),
-    ("node", "renamed"): ("chg-renamed", "重命名", "#a855f7"),
-    ("node", "moved_and_renamed"): ("chg-moved-renamed", "移动+重命名", "#6366f1"),
-    ("node", "child_order_changed"): ("chg-order", "子节点顺序", "#60a5fa"),
-    ("field", "changed"): ("chg-field", "字段", "#f59e0b"),
-    ("resource", "changed"): ("chg-resource", "资源", "#06b6d4"),
-    ("event", "changed"): ("chg-event", "事件", "#ec4899"),
-    ("component", "added"): ("chg-component", "组件新增", "#f97316"),
-    ("component", "deleted"): ("chg-component", "组件删除", "#f97316"),
-    ("component", "order_changed"): ("chg-component", "组件顺序", "#f97316"),
-    ("component", "changed"): ("chg-component", "组件变化", "#f97316"),
-    ("match", "uncertain"): ("chg-uncertain", "低置信度", "#dc2626"),
-    ("match", "ambiguous"): ("chg-ambiguous", "多候选风险", "#f97316"),
+_CHANGE_META: Dict[Tuple[str, str], Tuple[str, str, str, str]] = {
+    ("node", "added"): ("chg-added", "新增", "#22c55e", "after 中新增的节点"),
+    ("node", "deleted"): ("chg-deleted", "删除", "#ef4444", "before 中被删除的节点"),
+    ("node", "moved"): ("chg-moved", "移动", "#3b82f6", "节点改变了父节点位置"),
+    ("node", "renamed"): ("chg-renamed", "重命名", "#a855f7", "节点名字变了"),
+    ("node", "moved_and_renamed"): ("chg-moved-renamed", "移动+重命名", "#6366f1", "同时移动和重命名"),
+    ("node", "child_order_changed"): ("chg-order", "子节点顺序", "#60a5fa", "子节点的排列顺序变了"),
+    ("field", "changed"): ("chg-field", "字段", "#f59e0b", "属性字段值变化（位置、颜色、文本等）"),
+    ("resource", "changed"): ("chg-resource", "资源", "#06b6d4", "引用的图片、动画等资源变了"),
+    ("event", "changed"): ("chg-event", "事件", "#ec4899", "按钮点击事件等交互绑定变了"),
+    ("component", "added"): ("chg-component", "组件新增", "#f97316", "节点上新增了组件"),
+    ("component", "deleted"): ("chg-component", "组件删除", "#f97316", "节点上删除了组件"),
+    ("component", "order_changed"): ("chg-component", "组件顺序", "#f97316", "组件的排列顺序变了"),
+    ("component", "changed"): ("chg-component", "组件变化", "#f97316", "组件的属性值发生变化"),
+    ("match", "uncertain"): ("chg-uncertain", "低置信度", "#dc2626", "匹配不确定，可能错配"),
+    ("match", "ambiguous"): ("chg-ambiguous", "多候选风险", "#f97316", "存在多个相似候选，工具无法确定"),
 }
 
 _CHANGE_PRIORITY = [
@@ -286,7 +286,7 @@ def _render_legend() -> str:
         if not t_meta:
             continue
         t_items.append(
-            '<span class="legend-item"><span class="legend-dot" style="background:%s"></span>%s</span>' % (t_meta[2], _e(t_meta[1]))
+            '<span class="legend-item" data-tip="%s"><span class="legend-dot" style="background:%s"></span>%s</span>' % (_e(t_meta[3]), t_meta[2], _e(t_meta[1]))
         )
     return "".join(t_items)
 
