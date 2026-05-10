@@ -53,6 +53,7 @@ a { color: #60a5fa; }
 .tree-panel {
     flex: 1; min-width: 0; background: #111827; border: 1px solid #1e293b;
     border-radius: 8px; overflow: auto; padding: 10px 12px;
+    scroll-behavior: smooth;
 }
 .panel-title {
     font-size: 12px; font-weight: 600; color: #94a3b8; text-transform: uppercase;
@@ -448,7 +449,16 @@ function _highlightPair(row) {
     for (let i = 0; i < otherRows.length; i++) {
         if (otherRows[i].dataset.internalPath === otherPath) {
             otherRows[i].classList.add('active');
-            otherRows[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // Align vertically: scroll so otherRow sits at same relative position as clicked row
+            const currentPanel = row.closest('.tree-panel');
+            const otherPanel = otherRows[i].closest('.tree-panel');
+            if (currentPanel && otherPanel) {
+                const targetTop = otherRows[i].offsetTop - row.offsetTop + currentPanel.scrollTop;
+                const maxScroll = otherPanel.scrollHeight - otherPanel.clientHeight;
+                otherPanel.scrollTo({ top: Math.max(0, Math.min(targetTop, maxScroll)), behavior: 'smooth' });
+            } else {
+                otherRows[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
             break;
         }
     }
