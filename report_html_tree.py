@@ -53,8 +53,10 @@ def write_html_report(p_result: DiffResult, p_file_path: str) -> None:
 def render_html(p_result, p_before_doc, p_after_doc):
     t_before_idx = _build_path_index(p_result.changes, "before")
     t_after_idx = _build_path_index(p_result.changes, "after")
-    t_before_tree = _render_tree(p_before_doc.root_nodes, t_before_idx, "before")
-    t_after_tree = _render_tree(p_after_doc.root_nodes, t_after_idx, "after")
+    t_before_match_idx = _build_match_index(p_result.matches, "before")
+    t_after_match_idx = _build_match_index(p_result.matches, "after")
+    t_before_tree = _render_tree(p_before_doc.root_nodes, t_before_idx, t_before_match_idx, "before")
+    t_after_tree = _render_tree(p_after_doc.root_nodes, t_after_idx, t_after_match_idx, "after")
     t_stats = _compute_stats(p_result)
     t_changes_raw = _serialize_changes(p_result.changes)
     t_changes_json = json.dumps(t_changes_raw, ensure_ascii=False)
@@ -102,16 +104,25 @@ def _build_path_index(p_changes: List[Change], p_side: str) -> Dict[str, List[Ch
     return t_idx
 
 
-def _render_tree(p_nodes: List[PrefabNode], p_idx: Dict[str, List[Change]], p_side: str) -> str:
+def _build_match_index(p_matches: List[Dict[str, Any]], p_side: str) -> Dict[str, Dict[str, Any]]:
+    t_idx: Dict[str, Dict[str, Any]] = {}
+    for m in p_matches:
+        t_path = m.get("before_internal_path" if p_side == "before" else "after_internal_path")
+        if t_path:
+            t_idx[t_path] = m
+    return t_idx
+
+
+def _render_tree(p_nodes: List[PrefabNode], p_idx: Dict[str, List[Change]], p_match_idx: Dict[str, Dict[str, Any]], p_side: str) -> str:
     if not p_nodes:
         return '<div class="empty-tree">无节点</div>'
     t_items = []
     for node in p_nodes:
-        t_items.append(_render_node(node, p_idx, p_side, 0))
+        t_items.append(_render_node(node, p_idx, p_match_idx, p_side, 0))
     return "".join(t_items)
 
 
-def _render_node(p_node: PrefabNode, p_idx: Dict[str, List[Change]], p_side: str, p_depth: int) -> str:
+def _render_node(p_node: PrefabNode, p_idx: Dict[str, List[Change]], p_match_idx: Dict[str, Dict[str, Any]], p_side: str, p_depth: int) -> str:
     if p_node.internal_path in p_idx:
         t_changes = p_idx[p_node.internal_path]
     elif p_node.path in p_idx:
@@ -122,6 +133,16 @@ def _render_node(p_node: PrefabNode, p_idx: Dict[str, List[Change]], p_side: str
     t_has_children = bool(p_node.children)
     t_toggle = "▼" if t_has_children else " "
     t_indent = p_depth * 18
+
+    t_match_attrs = ""
+    t_match = p_match_idx.get(p_node.internal_path) or p_match_idx.get(p_node.path)
+    if t_match:
+        t_conf = t_match.get("confidence", 0)
+        t_status = t_match.get("status", "")
+        t_reasons = t_match.get("reasons", [])
+        t_match_attrs = ' data-match-status="%s" data-match-confidence="%s" data-match-reasons="%s"' % (
+            t_status, t_conf, _e(",".join(t_reasons[:3]))
+        )
 
     t_comp_pills = "".join(
         '<span class="comp-pill">%s</span>' % _e(t)
@@ -137,13 +158,14 @@ def _render_node(p_node: PrefabNode, p_idx: Dict[str, List[Change]], p_side: str
     if t_has_children:
         t_child_items = []
         for child in p_node.children:
-            t_child_items.append(_render_node(child, p_idx, p_side, p_depth + 1))
+            t_child_items.append(_render_node(child, p_idx, p_match_idx, p_side, p_depth + 1))
         t_children_html = '<div class="children">%s</div>' % "".join(t_child_items)
 
     return (
         '<div class="tree-node">'
         '<div class="node-row %(cls)s" style="padding-left:%(indent)spx" '
         'data-path="%(path)s" data-internal-path="%(internal_path)s" data-side="%(side)s" data-has-children="%(has_children)s" '
+        '%(match_attrs)s'
         'onclick="onNodeClick(this)">'
         '<span class="toggle" onclick="event.stopPropagation();toggleNode(this)">%(toggle)s</span>'
         '<span class="node-name">%(name)s</span>'
@@ -159,6 +181,7 @@ def _render_node(p_node: PrefabNode, p_idx: Dict[str, List[Change]], p_side: str
         "internal_path": _e(p_node.internal_path),
         "side": p_side,
         "has_children": "1" if t_has_children else "0",
+        "match_attrs": t_match_attrs,
         "toggle": t_toggle,
         "name": _e(p_node.name),
         "comp_pills": t_comp_pills,

@@ -181,6 +181,25 @@ a { color: #60a5fa; }
 .diff-new { color: #86efac; }
 .diff-arrow { color: #94a3b8; margin: 0 6px; }
 
+/* Tree tooltip */
+.tree-tooltip {
+    position: fixed;
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 11px;
+    color: #e2e8f0;
+    pointer-events: none;
+    z-index: 1000;
+    width: 260px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    display: none;
+}
+.tree-tooltip .tt-title { font-weight: 600; margin-bottom: 4px; color: #f8fafc; }
+.tree-tooltip .tt-score { color: #60a5fa; font-weight: 600; }
+.tree-tooltip .tt-reasons { color: #94a3b8; font-size: 10px; margin-top: 4px; line-height: 1.4; }
+
 /* Score breakdown */
 .score-breakdown { margin-top: 4px; }
 .score-header-row {
@@ -391,7 +410,17 @@ function onNodeClick(row) {
     });
 
     if (related.length === 0) {
-        panel.innerHTML = '<div class="placeholder">该节点无记录的变化（可能是父节点的子节点顺序变化影响了显示）</div>';
+        const match = ALL_MATCHES.find(function(m) {
+            if (side === 'before') return m.before_internal_path === internalPath;
+            return m.after_internal_path === internalPath;
+        });
+        let scoreLink = '';
+        if (match && match.score) {
+            const statusText = {'confirmed':'确认匹配','probable':'较可信匹配','uncertain':'不确定匹配','ambiguous':'模糊匹配'}[match.status] || match.status;
+            scoreLink = '<div style="margin-top:12px;color:#64748b;font-size:12px;">该节点为 ' + statusText + ' (' + match.confidence + '分)</div>' +
+                '<div style="margin-top:8px;"><button class="conf-btn" onclick="event.stopPropagation();openScoreModal(\'' + _esc(internalPath) + '\', \'' + side + '\')">查看匹配评分详情</button></div>';
+        }
+        panel.innerHTML = '<div class="placeholder">该节点无记录的变化（可能是父节点的子节点顺序变化影响了显示）' + scoreLink + '</div>';
         return;
     }
 
@@ -655,6 +684,66 @@ const SCORE_KIND_LABELS = {
     'cap': '封顶',
     'info': '标记',
 };
+
+/* Tree node tooltip */
+(function() {
+    const tt = document.createElement('div');
+    tt.className = 'tree-tooltip';
+    document.body.appendChild(tt);
+
+    const STATUS_LABELS = {
+        'confirmed': '确认匹配',
+        'probable': '较可信匹配',
+        'uncertain': '不确定匹配',
+        'ambiguous': '模糊匹配'
+    };
+
+    function _scoreColor(conf) {
+        conf = parseInt(conf, 10);
+        if (conf >= 92) return '#86efac';
+        if (conf >= 74) return '#fde047';
+        if (conf >= 58) return '#fca5a5';
+        return '#94a3b8';
+    }
+
+    document.addEventListener('mouseover', function(e) {
+        const row = e.target.closest('.node-row');
+        if (!row) return;
+        const status = row.dataset.matchStatus;
+        if (!status) return;
+        const conf = row.dataset.matchConfidence;
+        const reasons = row.dataset.matchReasons;
+        const label = STATUS_LABELS[status] || status;
+        const scoreColor = _scoreColor(conf);
+        let html = '<div class="tt-title">' + label + '</div>';
+        html += '<div class="tt-score" style="color:' + scoreColor + '">匹配分数: ' + conf + ' 分</div>';
+        if (reasons) {
+            const reasonLabels = reasons.split(',').map(function(r) {
+                return SCORE_REASON_LABELS[r] || r;
+            }).join('、');
+            html += '<div class="tt-reasons">依据: ' + reasonLabels + '</div>';
+        }
+        tt.innerHTML = html;
+        tt.style.display = 'block';
+        const rect = row.getBoundingClientRect();
+        let left = rect.right + 8;
+        let top = rect.top - 4;
+        if (left + 260 > window.innerWidth) {
+            left = rect.left - 268;
+        }
+        if (top + tt.offsetHeight > window.innerHeight) {
+            top = window.innerHeight - tt.offsetHeight - 8;
+        }
+        tt.style.left = left + 'px';
+        tt.style.top = top + 'px';
+    });
+
+    document.addEventListener('mouseout', function(e) {
+        const row = e.target.closest('.node-row');
+        if (!row) return;
+        tt.style.display = 'none';
+    });
+})();
 
 function _fmtScoreDetails(part) {
     const d = part.details;
