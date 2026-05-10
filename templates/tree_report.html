@@ -68,10 +68,16 @@ a { color: #60a5fa; }
     cursor: pointer; transition: background 0.12s; min-height: 26px;
 }
 .node-row:hover { background: #1e293b; }
+@keyframes flash-active {
+    0%%   { background: #2563eb; outline-color: #93c5fd; }
+    50%%  { background: #1e40af; outline-color: #60a5fa; }
+    100%% { background: #1e3a5f; outline-color: #3b82f6; }
+}
 .node-row.active {
     background: #1e3a5f;
     outline: 1px solid #3b82f6;
     outline-offset: -1px;
+    animation: flash-active 0.5s ease-out;
 }
 .toggle {
     display: inline-block; width: 14px; text-align: center; font-size: 10px;
@@ -142,6 +148,9 @@ a { color: #60a5fa; }
 .amb-score { color: #60a5fa; font-size: 11px; margin-top: 2px; }
 .amb-diff { color: #fca5a5; font-size: 11px; margin-top: 6px; padding-top: 6px; border-top: 1px solid #1e293b; }
 .amb-note { color: #94a3b8; font-size: 11px; margin-top: 8px; padding: 8px; background: #0f172a; border-radius: 4px; line-height: 1.5; }
+.detail-item.risk-border-high { border-left: 3px solid #ef4444; }
+.detail-item.risk-border-medium { border-left: 3px solid #f59e0b; }
+.detail-item.risk-border-low { border-left: 3px solid #22c55e; }
 .clone-hint { color: #fde047; font-size: 11px; margin-top: 8px; padding: 6px 8px; background: rgba(253,224,71,0.08); border: 1px solid rgba(253,224,71,0.2); border-radius: 4px; line-height: 1.4; }
 .risk-legend { display: flex; gap: 10px; margin-bottom: 10px; padding: 6px 8px; background: #0f172a; border-radius: 4px; font-size: 10px; color: #64748b; }
 .risk-legend-item { display: flex; align-items: center; gap: 4px; cursor: help; }
@@ -435,11 +444,17 @@ function toggleNode(el) {
     }
 }
 
+function _flashActive(el) {
+    el.classList.remove('active');
+    void el.offsetWidth; // force reflow to restart animation
+    el.classList.add('active');
+}
+
 function _highlightPair(row) {
     document.querySelectorAll('.node-row.active').forEach(function(el) {
         el.classList.remove('active');
     });
-    row.classList.add('active');
+    _flashActive(row);
 
     const internalPath = row.dataset.internalPath;
     const side = row.dataset.side;
@@ -454,7 +469,7 @@ function _highlightPair(row) {
     const otherRows = document.querySelectorAll('.node-row[data-side="' + otherSide + '"]');
     for (let i = 0; i < otherRows.length; i++) {
         if (otherRows[i].dataset.internalPath === otherPath) {
-            otherRows[i].classList.add('active');
+            _flashActive(otherRows[i]);
             // Align vertically: scroll so otherRow sits at same relative position as clicked row
             const currentPanel = row.closest('.tree-panel');
             const otherPanel = otherRows[i].closest('.tree-panel');
@@ -528,7 +543,8 @@ function onNodeClick(row) {
                 '</div>';
             }
         }
-        return '<div class="detail-item">' +
+        const riskBorder = c.risk === 'high' ? 'risk-border-high' : (c.risk === 'medium' ? 'risk-border-medium' : 'risk-border-low');
+        return '<div class="detail-item ' + riskBorder + '">' +
             '<div class="detail-header">' +
                 '<span class="risk-tag ' + riskClass + '" data-tip="' + riskTitle + '">' + riskText + '</span>' +
                 '<span class="type-label">' + _esc(typeText) + '</span>' +
@@ -586,7 +602,7 @@ function _renderAmbiguousCard(c, side, internalPath) {
     }
     return '<div class="detail-item ambiguous-card">' +
         '<div class="detail-header">' +
-            '<span class="risk-tag risk-high">高风险</span>' +
+            '<span class="risk-tag risk-high" data-tip="高风险：涉及脚本、事件等行为逻辑">高风险</span>' +
             '<span class="type-label">多候选匹配风险</span>' +
         '</div>' +
         '<div class="ambiguous-body">' +
@@ -619,10 +635,7 @@ function _highlightPairByPath(internalPath, side) {
     for (let i = 0; i < rows.length; i++) {
         if (rows[i].dataset.internalPath === internalPath) {
             rows[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
-            rows[i].classList.add('active');
-            setTimeout(function() {
-                rows[i].classList.remove('active');
-            }, 2000);
+            _flashActive(rows[i]);
             break;
         }
     }
@@ -633,10 +646,7 @@ function _locateAlternative(internalPath) {
     for (let i = 0; i < rows.length; i++) {
         if (rows[i].dataset.internalPath === internalPath) {
             rows[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
-            rows[i].classList.add('active');
-            setTimeout(function() {
-                rows[i].classList.remove('active');
-            }, 2000);
+            _flashActive(rows[i]);
             break;
         }
     }
