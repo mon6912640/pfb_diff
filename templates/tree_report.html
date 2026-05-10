@@ -143,6 +143,12 @@ a { color: #60a5fa; }
 .amb-diff { color: #fca5a5; font-size: 11px; margin-top: 6px; padding-top: 6px; border-top: 1px solid #1e293b; }
 .amb-note { color: #94a3b8; font-size: 11px; margin-top: 8px; padding: 8px; background: #0f172a; border-radius: 4px; line-height: 1.5; }
 .clone-hint { color: #fde047; font-size: 11px; margin-top: 8px; padding: 6px 8px; background: rgba(253,224,71,0.08); border: 1px solid rgba(253,224,71,0.2); border-radius: 4px; line-height: 1.4; }
+.risk-legend { display: flex; gap: 10px; margin-bottom: 10px; padding: 6px 8px; background: #0f172a; border-radius: 4px; font-size: 10px; color: #64748b; }
+.risk-legend-item { display: flex; align-items: center; gap: 4px; cursor: help; }
+.risk-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%%; }
+.risk-dot.risk-high { background: #ef4444; }
+.risk-dot.risk-medium { background: #f59e0b; }
+.risk-dot.risk-low { background: #22c55e; }
 .alt-section { margin-top: 8px; border-top: 1px solid #1e293b; padding-top: 8px; }
 .alt-toggle { cursor: pointer; color: #94a3b8; font-size: 11px; display: flex; align-items: center; gap: 6px; user-select: none; }
 .alt-toggle:hover { color: #e2e8f0; }
@@ -495,7 +501,8 @@ function onNodeClick(row) {
             return _renderAmbiguousCard(c, side, internalPath);
         }
         const riskClass = c.risk === 'high' ? 'risk-high' : (c.risk === 'medium' ? 'risk-medium' : 'risk-low');
-        const riskText = c.risk === 'high' ? '高' : (c.risk === 'medium' ? '中' : '低');
+        const riskTitle = c.risk === 'high' ? '高风险：涉及脚本、事件等行为逻辑' : (c.risk === 'medium' ? '中风险：涉及资源引用或匹配质量存疑' : '低风险：常规字段调整');
+        const riskText = c.risk === 'high' ? '高风险' : (c.risk === 'medium' ? '中风险' : '低风险');
         const typeText = _typeText(c);
         let fieldHtml = '';
         if (c.field) {
@@ -523,7 +530,7 @@ function onNodeClick(row) {
         }
         return '<div class="detail-item">' +
             '<div class="detail-header">' +
-                '<span class="risk-tag ' + riskClass + '">' + riskText + '</span>' +
+                '<span class="risk-tag ' + riskClass + '" data-tip="' + riskTitle + '">' + riskText + '</span>' +
                 '<span class="type-label">' + _esc(typeText) + '</span>' +
             '</div>' +
             fieldHtml + pathHtml + valueDiffHtml + cloneHint +
@@ -542,7 +549,12 @@ function onNodeClick(row) {
     const groupHeader = sharedConfidence
         ? '<div style="color:' + confidenceColor + ';font-size:11px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #1e293b;">节点匹配置信度: ' + sharedConfidence + scoreBtn + '</div>'
         : '';
-    panel.innerHTML = groupHeader + htmlParts.join('');
+    const riskLegend = '<div class="risk-legend">' +
+        '<span class="risk-legend-item" data-tip="涉及脚本、事件等行为逻辑的变更"><span class="risk-dot risk-high"></span>高风险=行为逻辑</span>' +
+        '<span class="risk-legend-item" data-tip="涉及资源引用或匹配质量存疑"><span class="risk-dot risk-medium"></span>中风险=资源/匹配</span>' +
+        '<span class="risk-legend-item" data-tip="常规字段调整，如位置、颜色、文本"><span class="risk-dot risk-low"></span>低风险=常规调整</span>' +
+    '</div>';
+    panel.innerHTML = groupHeader + riskLegend + htmlParts.join('');
 }
 
 function _renderAmbiguousCard(c, side, internalPath) {
@@ -574,7 +586,7 @@ function _renderAmbiguousCard(c, side, internalPath) {
     }
     return '<div class="detail-item ambiguous-card">' +
         '<div class="detail-header">' +
-            '<span class="risk-tag risk-high">高</span>' +
+            '<span class="risk-tag risk-high">高风险</span>' +
             '<span class="type-label">多候选匹配风险</span>' +
         '</div>' +
         '<div class="ambiguous-body">' +
@@ -873,26 +885,10 @@ const SCORE_KIND_LABELS = {
         return '#94a3b8';
     }
 
-    document.addEventListener('mouseover', function(e) {
-        const row = e.target.closest('.node-row');
-        if (!row) return;
-        const status = row.dataset.matchStatus;
-        if (!status) return;
-        const conf = row.dataset.matchConfidence;
-        const reasons = row.dataset.matchReasons;
-        const label = STATUS_LABELS[status] || status;
-        const scoreColor = _scoreColor(conf);
-        let html = '<div class="tt-title">' + label + '</div>';
-        html += '<div class="tt-score" style="color:' + scoreColor + '">匹配分数: ' + conf + ' 分</div>';
-        if (reasons) {
-            const reasonLabels = reasons.split(',').map(function(r) {
-                return SCORE_REASON_LABELS[r] || r;
-            }).join('、');
-            html += '<div class="tt-reasons">依据: ' + reasonLabels + '</div>';
-        }
+    function _showTooltip(el, html) {
         tt.innerHTML = html;
         tt.style.display = 'block';
-        const rect = row.getBoundingClientRect();
+        const rect = el.getBoundingClientRect();
         let left = rect.right + 8;
         let top = rect.top - 4;
         if (left + 260 > window.innerWidth) {
@@ -903,12 +899,46 @@ const SCORE_KIND_LABELS = {
         }
         tt.style.left = left + 'px';
         tt.style.top = top + 'px';
+    }
+
+    document.addEventListener('mouseover', function(e) {
+        const row = e.target.closest('.node-row');
+        if (row) {
+            const status = row.dataset.matchStatus;
+            if (!status) return;
+            const conf = row.dataset.matchConfidence;
+            const reasons = row.dataset.matchReasons;
+            const label = STATUS_LABELS[status] || status;
+            const scoreColor = _scoreColor(conf);
+            let html = '<div class="tt-title">' + label + '</div>';
+            html += '<div class="tt-score" style="color:' + scoreColor + '">匹配分数: ' + conf + ' 分</div>';
+            if (reasons) {
+                const reasonLabels = reasons.split(',').map(function(r) {
+                    return SCORE_REASON_LABELS[r] || r;
+                }).join('、');
+                html += '<div class="tt-reasons">依据: ' + reasonLabels + '</div>';
+            }
+            _showTooltip(row, html);
+            return;
+        }
+        const legendItem = e.target.closest('.risk-legend-item');
+        if (legendItem) {
+            const title = legendItem.getAttribute('data-tip') || '';
+            _showTooltip(legendItem, '<div class="tt-title">风险等级说明</div><div class="tt-reasons">' + title + '</div>');
+            return;
+        }
+        const riskTag = e.target.closest('.risk-tag');
+        if (riskTag) {
+            const title = riskTag.getAttribute('data-tip') || '';
+            _showTooltip(riskTag, '<div class="tt-title">风险等级说明</div><div class="tt-reasons">' + title + '</div>');
+            return;
+        }
     });
 
     document.addEventListener('mouseout', function(e) {
-        const row = e.target.closest('.node-row');
-        if (!row) return;
-        tt.style.display = 'none';
+        if (e.target.closest('.node-row') || e.target.closest('.risk-legend-item') || e.target.closest('.risk-tag')) {
+            tt.style.display = 'none';
+        }
     });
 })();
 
