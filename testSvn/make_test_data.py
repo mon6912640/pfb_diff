@@ -3,9 +3,10 @@
 
 组 A 03_contentLv1：受控冲突
   - point1: 仅 ours 改 y          → only_ours
-  - point2: ours 改 x、theirs 改 y → both_modified（真冲突）
+  - point2: ours 改 x、theirs 改 y → both_modified（同向量不同分量，无字段碰撞，可两边保留）
   - point3: 双方都改 x 为同一个值   → both_convergent（假冲突）
   - point4: 仅 theirs 重命名       → only_theirs
+  - line:   ours 改 y=30、theirs 改 y=40 → both_modified（同字段碰撞，必须人工取舍）
 组 B 01_TowBat：压力组，ours 零修改，theirs 为另一皮肤版本（全量单边差异）
 组 C 03_treeConflict：树级冲突
   - base 在 contentLv1 下挂了 PanelExtra/LabelInfo 子树
@@ -47,12 +48,14 @@ ours_a = copy.deepcopy(base_a)
 find_node(ours_a, "point1")["_position"]["y"] = 200      # 仅 ours
 find_node(ours_a, "point2")["_position"]["x"] = -300     # 真冲突（ours 侧）
 find_node(ours_a, "point3")["_position"]["x"] = 260      # 收敛修改（ours 侧）
+find_node(ours_a, "line")["_position"]["y"] = 30         # 字段碰撞（ours 侧）
 save(ours_a, "03_contentLv1.prefab.working")
 
 theirs_a = copy.deepcopy(base_a)
 find_node(theirs_a, "point2")["_position"]["y"] = -100   # 真冲突（theirs 侧，改不同字段）
 find_node(theirs_a, "point3")["_position"]["x"] = 260    # 收敛修改（theirs 侧，同值）
 find_node(theirs_a, "point4")["_name"] = "point4_renamed"  # 仅 theirs
+find_node(theirs_a, "line")["_position"]["y"] = 40       # 字段碰撞（theirs 侧，同字段不同值）
 save(theirs_a, "03_contentLv1.prefab.merge-right.r105")
 
 # ── 组 B：压力组 ──
