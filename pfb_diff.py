@@ -56,7 +56,7 @@ def _default_report_paths(p_before: str, p_after: str, p_create_dir: bool = True
         t_tool_dir = os.path.dirname(sys.executable)
     else:
         t_tool_dir = os.path.dirname(os.path.abspath(__file__))
-    t_report_dir = os.path.join(t_tool_dir, "reports")
+    t_report_dir = os.path.join(t_tool_dir, "reports", "compare")
     if p_create_dir and not os.path.isdir(t_report_dir):
         os.makedirs(t_report_dir)
     t_before_name = _prefab_base_name(p_before)

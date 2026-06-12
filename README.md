@@ -10,7 +10,12 @@
 python gui.py
 ```
 
-启动原生桌面窗口，拖入两个 `.prefab` 文件即可生成树形对比报告，支持查看历史报告。
+启动原生桌面窗口，包含两个页签：
+
+- **📊 两方对比**：拖入两个 `.prefab` 文件即可生成树形对比报告
+- **🌲 SVN 冲突分析**：拖入 `.prefab.working` 冲突文件（自动定位同组 merge-left/merge-right，分析完直接打开冲突概览），或拖入整个目录批量扫描所有冲突组，逐组分析后行内直接显示结论（真冲突 / 树级冲突 / 改动一致数量）
+
+支持查看历史报告（冲突分析的子报告不在列表里重复展示，从概览页内链接进入）。
 
 **特点**：使用 `tkinterdnd2` 实现原生拖放，**拖放可直接获取文件完整路径**（如 `C:\work\...\xxx.prefab`），报告中会显示原始路径方便区分。
 
@@ -41,7 +46,7 @@ python pfb_diff.py diff \
 如果不传 `--out` 和 `--json`，工具会自动生成 HTML 和 JSON 报告到：
 
 ```text
-reports/
+reports/compare/
 ```
 
 默认文件名会根据两个 prefab 的文件名生成，例如：
@@ -56,6 +61,20 @@ myflCnt_diff_20260506_153012.json
 ```bash
 python pfb_diff.py diff --before old.prefab --after new.prefab --fail-on-risk high
 ```
+
+### SVN 冲突分析（CLI）
+
+```bash
+# 指定 working 文件，自动寻找同组的 merge-left / merge-right
+python svn_conflict_helper.py ZdlsMapScene.prefab.working
+
+# 扫描目录内所有冲突组
+python svn_conflict_helper.py --scan <目录>
+```
+
+每组生成 4 份报告：冲突概览（交叉分类：真冲突 / 树级冲突 / 双方改动一致 / 仅单边修改）+ base→ours、base→theirs、ours↔theirs 三份树形报告。
+
+报告按功能分子目录存放：两方对比 → `reports/compare/`，冲突分析 → `reports/svn_conflict/`。GUI 的最近报告列表随页签切换展示对应目录；后续新增页签功能时按此约定新增子目录。
 
 ### 方式三：打包成 exe（无 Python 环境可用）
 
@@ -85,15 +104,18 @@ compile.bat
 ```
 pfb_diff/
 ├── main.py               # 统一入口（有参数走 CLI，无参数启动 GUI）
-├── gui.py                # 桌面 GUI（Tkinter + tkinterdnd2）
+├── gui.py                # 桌面 GUI（Tkinter + tkinterdnd2，含 SVN 冲突分析页签）
 ├── pfb_diff.py           # CLI 入口
+├── svn_conflict_helper.py # SVN 冲突分析（CLI + GUI 共用的分析与概览报告）
 ├── compile.bat           # PyInstaller 打包脚本
 ├── diff_engine.py        # 核心 diff 引擎
 ├── matcher.py            # 节点匹配引擎
 ├── report_html_tree.py   # 树形 HTML 报告生成器
 ├── report_json.py        # JSON 报告生成器
 ├── tests/                # 单元测试
-└── reports/              # 自动生成的报告目录
+└── reports/              # 自动生成的报告目录（按功能分子目录）
+    ├── compare/          #   两方对比报告
+    └── svn_conflict/     #   SVN 冲突分析报告
 ```
 
 ## 范围

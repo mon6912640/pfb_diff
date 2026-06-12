@@ -9,7 +9,7 @@ svn_conflict_helper.py — SVN prefab 冲突快速分析脚本
     # 扫描当前目录所有冲突组
     python svn_conflict_helper.py --scan
 
-    # 指定输出目录（默认脚本所在目录的 reports/）
+    # 指定输出目录（默认脚本所在目录的 reports/svn_conflict/）
     python svn_conflict_helper.py ZdlsMapScene.prefab.working --out-dir ./reports
 """
 
@@ -76,7 +76,7 @@ def find_group_by_working(working_path: str) -> Dict[str, str]:
     working_name = os.path.basename(working_path)
 
     if not working_name.endswith(".working"):
-        raise SystemExit(f"❌ 输入文件必须以 .working 结尾: {working_path}")
+        raise ValueError(f"输入文件必须以 .working 结尾: {working_path}")
 
     prefix = working_name[: -len(".working")]
     base_pat = re.compile(re.escape(prefix) + r"\.merge-left\.r\d+")
@@ -91,9 +91,9 @@ def find_group_by_working(working_path: str) -> Dict[str, str]:
             theirs_file = os.path.join(directory, candidate)
 
     if not base_file:
-        raise SystemExit(f"❌ 未找到 merge-left 文件（前缀: {prefix}）")
+        raise ValueError(f"未找到 merge-left 文件（前缀: {prefix}）")
     if not theirs_file:
-        raise SystemExit(f"❌ 未找到 merge-right 文件（前缀: {prefix}）")
+        raise ValueError(f"未找到 merge-right 文件（前缀: {prefix}）")
 
     return {
         "name": prefix,
@@ -182,20 +182,20 @@ def _find_tree_conflicts(ops: List[Dict[str, Any]], other_by_node: Dict[str, Lis
     return conflicts
 
 
-def analyze_conflict(group: Dict[str, str]) -> Dict[str, Any]:
-    """分析一个冲突组，返回综合数据"""
-    print(f"\n📦 冲突组: {group['name']}")
-    print(f"   base:   {group['base']}")
-    print(f"   ours:   {group['ours']}")
-    print(f"   theirs: {group['theirs']}")
+def analyze_conflict(group: Dict[str, str], progress=print) -> Dict[str, Any]:
+    """分析一个冲突组，返回综合数据。progress 接收进度文本（GUI 可传回调，CLI 默认 print）。"""
+    progress(f"\n📦 冲突组: {group['name']}")
+    progress(f"   base:   {group['base']}")
+    progress(f"   ours:   {group['ours']}")
+    progress(f"   theirs: {group['theirs']}")
 
-    print("   ⏳ 计算 base → ours ...")
+    progress("   ⏳ 计算 base → ours ...")
     ours_result = diff_prefabs(group["base"], group["ours"])
 
-    print("   ⏳ 计算 base → theirs ...")
+    progress("   ⏳ 计算 base → theirs ...")
     theirs_result = diff_prefabs(group["base"], group["theirs"])
 
-    print("   ⏳ 计算 ours ↔ theirs（参考视图）...")
+    progress("   ⏳ 计算 ours ↔ theirs（参考视图）...")
     cross_result = diff_prefabs(group["ours"], group["theirs"])
 
     # 按节点归类
@@ -673,8 +673,23 @@ _OVERVIEW_CSS = """
   h1 { margin:0 0 8px; font-size:20px; color:#f8fafc; }
   h2 { margin:28px 0 4px; font-size:15px; color:#f8fafc; display:flex; align-items:center; gap:8px; }
   .sec-note { color:#64748b; font-size:12px; margin:0 0 12px; }
-  .meta { color:#64748b; font-size:12px; margin-bottom:16px; }
+  .meta { color:#64748b; font-size:12px; margin-bottom:6px; }
   .meta b { color:#94a3b8; font-weight:600; }
+  .role { border-bottom:1px dotted #475569; cursor:help; }
+
+  details.help { margin:0 0 16px; }
+  details.help summary { color:#64748b; font-size:12px; cursor:pointer; user-select:none;
+                         list-style:none; display:inline-block; }
+  details.help summary::-webkit-details-marker { display:none; }
+  details.help summary:hover { color:#94a3b8; }
+  details.help[open] summary { color:#94a3b8; }
+  .help-body { margin-top:8px; background:#111827; border:1px solid #1e293b; border-radius:8px;
+               padding:12px 14px; font-size:12px; color:#94a3b8; line-height:1.8; max-width:920px; }
+  .role-row { display:flex; gap:10px; align-items:baseline; }
+  .role-name { font-weight:700; min-width:52px; font-family:ui-monospace,Consolas,monospace; }
+  .role-file { color:#64748b; font-family:ui-monospace,Consolas,monospace; }
+  .help-method { margin-top:8px; padding-top:8px; border-top:1px dashed #1e293b; color:#64748b; }
+  .help-method b { color:#94a3b8; }
 
   .links { margin-bottom:20px; }
   .links a { display:inline-block; background:#1e3a5f; color:#60a5fa; padding:7px 14px; border-radius:6px;
@@ -824,11 +839,31 @@ def _build_overview_html(data: Dict[str, Any], ours_report_name: str,
 <div class="container">
   <h1>🌲 SVN 冲突概览 — {_esc(group['name'])}</h1>
   <div class="meta">
-    <b>base</b> {_esc(os.path.basename(group['base']))} &nbsp;|&nbsp;
-    <b>ours</b> {_esc(os.path.basename(group['ours']))} &nbsp;|&nbsp;
-    <b>theirs</b> {_esc(os.path.basename(group['theirs']))} &nbsp;|&nbsp;
+    <b class="role" title="共同祖先：两边分叉前最后的共同版本（merge-left 文件），是判断“谁改了什么”的参照系">base</b> {_esc(os.path.basename(group['base']))} &nbsp;|&nbsp;
+    <b class="role" title="本地：你工作区当前的内容（.working 文件）">ours</b> {_esc(os.path.basename(group['ours']))} &nbsp;|&nbsp;
+    <b class="role" title="分支：svn merge 正在合入的对方版本（merge-right 文件）">theirs</b> {_esc(os.path.basename(group['theirs']))} &nbsp;|&nbsp;
     生成时间 {data['stamp']}
   </div>
+
+  <details class="help">
+    <summary>❓ base / ours / theirs 是什么？</summary>
+    <div class="help-body">
+      <div class="role-row"><span class="role-name" style="color:#e2e8f0;">base</span>
+        <span>共同祖先 —— 两边分叉前最后的共同版本，是判断“谁改了什么”的参照系。
+        <span class="role-file">（merge-left.rN 文件）</span></span></div>
+      <div class="role-row"><span class="role-name" style="color:#60a5fa;">ours</span>
+        <span>本地 —— 你工作区当前的内容，即执行合并的这一方。
+        <span class="role-file">（.working 文件）</span></span></div>
+      <div class="role-row"><span class="role-name" style="color:#34d399;">theirs</span>
+        <span>分支 —— svn merge 正在合入的对方版本。
+        <span class="role-file">（merge-right.rN 文件）</span></span></div>
+      <div class="help-method">
+        <b>分析方法</b>：分别计算 base→ours（我改了什么）和 base→theirs（对方改了什么），再按节点交叉归类——
+        只有一边改过的节点可以直接采用，两边都改过的才需要人工处理。
+        ours↔theirs 直接对比仅供参考：它只能看出两个终态不同，分不清是谁改的。
+      </div>
+    </div>
+  </details>
 
   <div class="links">
     <a href="{ours_report_name}" target="_blank">📄 base → ours 完整报告</a>
@@ -900,7 +935,7 @@ def _build_overview_html(data: Dict[str, Any], ours_report_name: str,
 """
 
 
-def generate_reports(data: Dict[str, Any], out_dir: str) -> str:
+def generate_reports(data: Dict[str, Any], out_dir: str, progress=print) -> str:
     """生成概览报告 + 三份独立报告，返回概览报告路径"""
     os.makedirs(out_dir, exist_ok=True)
 
@@ -918,9 +953,9 @@ def generate_reports(data: Dict[str, Any], out_dir: str) -> str:
     write_html_report(data["ours_result"], ours_path)
     write_html_report(data["theirs_result"], theirs_path)
     write_html_report(data["cross_result"], cross_path)
-    print(f"   ✓ base → ours:   {ours_path}")
-    print(f"   ✓ base → theirs: {theirs_path}")
-    print(f"   ✓ ours ↔ theirs: {cross_path}")
+    progress(f"   ✓ base → ours:   {ours_path}")
+    progress(f"   ✓ base → theirs: {theirs_path}")
+    progress(f"   ✓ ours ↔ theirs: {cross_path}")
 
     # 概览报告
     overview_name = f"{safe}_conflict_overview_{stamp}.html"
@@ -928,7 +963,7 @@ def generate_reports(data: Dict[str, Any], out_dir: str) -> str:
     html_text = _build_overview_html(data, ours_name, theirs_name, cross_name)
     with open(overview_path, "w", encoding="utf-8") as f:
         f.write(html_text)
-    print(f"   ✓ 冲突概览:      {overview_path}")
+    progress(f"   ✓ 冲突概览:      {overview_path}")
 
     return overview_path
 
@@ -941,7 +976,7 @@ def main():
     parser = argparse.ArgumentParser(description="SVN prefab 冲突快速分析")
     parser.add_argument("target", nargs="?", help=".working 文件路径，或目录路径（配合 --scan）")
     parser.add_argument("--scan", action="store_true", help="扫描目录内所有冲突组")
-    parser.add_argument("--out-dir", default=os.path.join(PROJECT_ROOT, "reports"), help="输出目录（默认脚本所在目录的 reports/）")
+    parser.add_argument("--out-dir", default=os.path.join(PROJECT_ROOT, "reports", "svn_conflict"), help="输出目录（默认脚本所在目录的 reports/svn_conflict/）")
     args = parser.parse_args()
 
     # 收集冲突组
@@ -955,7 +990,11 @@ def main():
         if not args.target:
             parser.print_help()
             return
-        groups = [find_group_by_working(args.target)]
+        try:
+            groups = [find_group_by_working(args.target)]
+        except ValueError as e:
+            print(f"❌ {e}")
+            sys.exit(2)
 
     # 逐组分析（单组失败不中断整批）
     print(f"\n发现 {len(groups)} 个冲突组，开始分析...")
