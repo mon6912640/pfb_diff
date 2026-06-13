@@ -239,8 +239,15 @@ def _pair_components(p_before_node, p_after_node) -> List[Tuple[str, Any, Any]]:
 
 def _resource_map(p_node) -> Dict[str, str]:
     t_map = {}
+    t_seen = {}
     for t_item in p_node.resources:
-        t_key = "%s.%s" % (t_item.get("component"), t_item.get("field"))
+        t_base = "%s.%s" % (t_item.get("component"), t_item.get("field"))
+        # 同节点挂多个同类组件时，相同的 component.field 会撞键导致后者覆盖
+        # 前者、漏报资源变更。给重复出现的键加 occurrence 后缀区分；
+        # 首次出现保持原键，单资源的常见情况键名不变。
+        t_index = t_seen.get(t_base, 0)
+        t_seen[t_base] = t_index + 1
+        t_key = t_base if t_index == 0 else "%s#%d" % (t_base, t_index)
         t_map[t_key] = t_item.get("uuid")
     return t_map
 

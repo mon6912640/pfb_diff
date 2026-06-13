@@ -61,7 +61,9 @@ def _label_texts(p_node: PrefabNode) -> List[Any]:
             continue
         for t_key in ["_N$string", "_string", "string"]:
             if t_key in t_component.props:
-                t_texts.append(t_component.props.get(t_key))
+                # 与 matcher._label_texts 对齐：包 str() 后再排序，否则
+                # 同节点混有 null 文本时 sorted 会因 str 与 None 不可比而崩溃。
+                t_texts.append(str(t_component.props.get(t_key)))
     return t_texts
 
 

@@ -40,6 +40,18 @@ def parse_prefab(file_path: str) -> PrefabDocument:
         t_root.sibling_index = t_index
         _assign_paths(t_root, "", "")
 
+    for t_node in t_nodes:
+        # 有合法 _parent 但未被父节点 _children 列出的节点（或成环节点）
+        # 不会被 _assign_paths 遍历到，路径为空。空 internal_path 会让它们
+        # 在匹配第一阶段互相乱锚，这里发出警告提示数据结构异常。
+        if not t_node.internal_path:
+            t_doc.warnings.append({
+                "type": "unreachable_node",
+                "id": t_node.local_id,
+                "name": t_node.name,
+                "message": "node has a parent but is not reachable from any root (orphan or cycle)",
+            })
+
     _resolve_event_targets(t_doc, t_nodes)
 
     t_doc.nodes = sorted(t_nodes, key=lambda p_node: p_node.internal_path or p_node.name)

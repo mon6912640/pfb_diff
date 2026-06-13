@@ -317,6 +317,54 @@ class PfbDiffTests(unittest.TestCase):
             for t_change in t_result.changes
         ))
 
+    def test_null_label_does_not_crash(self):
+        """A：同节点混有 null 与非空 Label 文本时，指纹构建不应崩溃。"""
+        t_data = [
+            {"__type__": "cc.Prefab", "data": {"__id__": 1}},
+            {"__type__": "cc.Node", "_name": "Root", "_children": [{"__id__": 2}], "_components": []},
+            {"__type__": "cc.Node", "_name": "T", "_parent": {"__id__": 1}, "_children": [],
+             "_components": [{"__id__": 3}, {"__id__": 4}]},
+            {"__type__": "cc.Label", "node": {"__id__": 2}, "_N$string": None},
+            {"__type__": "cc.Label", "node": {"__id__": 2}, "_N$string": "hello"},
+        ]
+        with tempfile.TemporaryDirectory() as t_dir:
+            t_path = write_temp_prefab(t_dir, "x.prefab", t_data)
+            t_result = diff_prefabs(t_path, t_path)
+        self.assertEqual([], [t_change for t_change in t_result.changes if t_change.category != "warning"])
+
+    def test_multiple_same_type_resources_are_not_overwritten(self):
+        """D：同节点两个 cc.Sprite，各自 uuid 变化都要报出，不能互相覆盖。"""
+        def sprites(p_uuid_a, p_uuid_b):
+            return [
+                {"__type__": "cc.Prefab", "data": {"__id__": 1}},
+                {"__type__": "cc.Node", "_name": "Root", "_children": [{"__id__": 2}], "_components": []},
+                {"__type__": "cc.Node", "_name": "Dual", "_parent": {"__id__": 1}, "_children": [],
+                 "_components": [{"__id__": 3}, {"__id__": 4}]},
+                {"__type__": "cc.Sprite", "node": {"__id__": 2}, "_spriteFrame": {"__uuid__": p_uuid_a}},
+                {"__type__": "cc.Sprite", "node": {"__id__": 2}, "_spriteFrame": {"__uuid__": p_uuid_b}},
+            ]
+        with tempfile.TemporaryDirectory() as t_dir:
+            t_before = write_temp_prefab(t_dir, "before.prefab", sprites("u1", "u2"))
+            t_after = write_temp_prefab(t_dir, "after.prefab", sprites("v1", "v2"))
+            t_result = diff_prefabs(t_before, t_after)
+        t_resource_changes = {(t_change.before, t_change.after)
+                              for t_change in t_result.changes if t_change.category == "resource"}
+        self.assertIn(("u1", "v1"), t_resource_changes)
+        self.assertIn(("u2", "v2"), t_resource_changes)
+
+    def test_orphan_node_emits_warning(self):
+        """C：有 _parent 但未被父 _children 列出的节点应触发 unreachable_node 警告。"""
+        t_data = [
+            {"__type__": "cc.Prefab", "data": {"__id__": 1}},
+            {"__type__": "cc.Node", "_name": "Root", "_parent": None, "_children": [], "_components": []},
+            {"__type__": "cc.Node", "_name": "Ghost", "_parent": {"__id__": 1}, "_children": [], "_components": []},
+        ]
+        with tempfile.TemporaryDirectory() as t_dir:
+            t_path = write_temp_prefab(t_dir, "orphan.prefab", t_data)
+            t_doc = parse_prefab(t_path)
+        self.assertTrue(any(t_warning["type"] == "unreachable_node" and t_warning["name"] == "Ghost"
+                            for t_warning in t_doc.warnings))
+
     def test_rename_is_not_delete_plus_add(self):
         t_result = diff_prefabs(fixture("base.prefab"), fixture("renamed.prefab"))
         t_types = [(t_change.category, t_change.type) for t_change in t_result.changes]
