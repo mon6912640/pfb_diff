@@ -18,7 +18,7 @@ def classify_match(p_match):
 
 
 def classify_field_change(p_field, p_before_value, p_after_value):
-    if "clickEvents" in str(p_field) or ".events" in str(p_field):
+    if str(p_field) == "events" or "clickEvents" in str(p_field) or ".events" in str(p_field):
         return RISK_HIGH
     if "uuid" in str(p_field) or "resources" in str(p_field) or "_spriteFrame" in str(p_field) or "_skeletonData" in str(p_field):
         return RISK_MEDIUM

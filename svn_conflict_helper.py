@@ -315,7 +315,7 @@ def _field_label(field: Optional[str], category: str) -> str:
     if not field:
         return "—"
     if category == "event":
-        return "点击事件"
+        return "组件事件"
     if category == "resource":
         # 形如 cc.Sprite._spriteFrame
         comp, _, prop = field.rpartition(".")

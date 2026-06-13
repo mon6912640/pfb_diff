@@ -121,3 +121,5 @@ pfb_diff/
 ## 范围
 
 不做三方 diff、SVN 冲突自动识别、自动合并、资源 uuid 到路径映射。脚本字段只做浅层 diff，并跳过 Cocos 内部字段和 `__id__` 引用。
+
+事件回调对比覆盖 Button / Toggle / ToggleContainer / Slider / ScrollView / PageView / EditBox（见 `config.py` 的 `EVENT_FIELDS`）；事件 target 会解析成节点路径再对比，不受 `__id__` 布局偏移影响；编辑器中未绑定函数的空事件槽不参与对比。

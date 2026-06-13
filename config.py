@@ -46,7 +46,18 @@ RESOURCE_FIELDS = {
 }
 
 LABEL_FIELDS = ["_N$string", "_string", "string"]
-BUTTON_EVENT_FIELDS = ["clickEvents"]
+
+# 各组件的事件回调数组字段（cc.ClickEvent / cc.Component.EventHandler 列表）。
+# 此处列出的字段会被提取为事件参与对比，并从浅层 props 中排除。
+EVENT_FIELDS = {
+    "cc.Button": ["clickEvents"],
+    "cc.Toggle": ["clickEvents", "checkEvents"],
+    "cc.ToggleContainer": ["checkEvents"],
+    "cc.Slider": ["slideEvents"],
+    "cc.ScrollView": ["scrollEvents"],
+    "cc.PageView": ["scrollEvents", "pageEvents"],
+    "cc.EditBox": ["editingDidBegan", "textChanged", "editingDidEnded", "editingReturn"],
+}
 
 CONFIRMED_SCORE = 92
 PROBABLE_SCORE = 74

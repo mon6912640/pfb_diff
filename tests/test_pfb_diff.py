@@ -33,6 +33,74 @@ def score_part(p_match, p_reason):
     return None
 
 
+def id_shifted_copy(p_data):
+    """模拟"文件前部插入一个对象"：下标 ≥1 的对象整体后移，所有 __id__ 引用 +1。
+
+    语义完全等价，仅 __id__ 布局不同——diff 必须报 0 个变化。
+    """
+    def shift(p_value):
+        if isinstance(p_value, dict):
+            if "__id__" in p_value and isinstance(p_value["__id__"], int):
+                t_id = p_value["__id__"]
+                return {"__id__": t_id + 1 if t_id >= 1 else t_id}
+            return {t_key: shift(t_item) for t_key, t_item in p_value.items()}
+        if isinstance(p_value, list):
+            return [shift(t_item) for t_item in p_value]
+        return p_value
+
+    return [shift(p_data[0]), {"__type__": "cc.JsonAsset", "_name": "__pad__"}] + [shift(t_obj) for t_obj in p_data[1:]]
+
+
+def toggle_prefab(p_handler):
+    return [
+        {"__type__": "cc.Prefab", "data": {"__id__": 1}},
+        {"__type__": "cc.Node", "_name": "Root", "_children": [], "_components": [{"__id__": 2}]},
+        {"__type__": "cc.Toggle", "node": {"__id__": 1},
+         "checkEvents": [{"__type__": "cc.ClickEvent", "target": {"__id__": 1}, "component": "MyView", "handler": p_handler, "customEventData": ""}]},
+    ]
+
+
+def retarget_prefab(p_target_id):
+    return [
+        {"__type__": "cc.Prefab", "data": {"__id__": 1}},
+        {"__type__": "cc.Node", "_name": "Root", "_children": [{"__id__": 2}, {"__id__": 3}], "_components": [{"__id__": 4}]},
+        {"__type__": "cc.Node", "_name": "TargetA", "_parent": {"__id__": 1}, "_children": [], "_components": []},
+        {"__type__": "cc.Node", "_name": "TargetB", "_parent": {"__id__": 1}, "_children": [], "_components": []},
+        {"__type__": "cc.Button", "node": {"__id__": 1},
+         "clickEvents": [{"__type__": "cc.ClickEvent", "target": {"__id__": p_target_id}, "component": "MyView", "handler": "onClick", "customEventData": ""}]},
+    ]
+
+
+def write_temp_prefab(p_dir, p_name, p_data):
+    t_path = os.path.join(p_dir, p_name)
+    with open(t_path, "w", encoding="utf-8") as t_file:
+        json.dump(p_data, t_file, ensure_ascii=False)
+    return t_path
+
+
+def empty_container_prefab(p_container_name, p_child_names):
+    """一个无组件的纯容器，挂若干无特征的空子节点。用于跨名空容器误配测试。"""
+    t_data = [
+        {"__type__": "cc.Prefab", "data": {"__id__": 1}},
+        {"__type__": "cc.Node", "_name": "Root", "_children": [{"__id__": 2}], "_components": []},
+        {"__type__": "cc.Node", "_name": p_container_name, "_parent": {"__id__": 1},
+         "_children": [{"__id__": 3 + t_i} for t_i in range(len(p_child_names))], "_components": []},
+    ]
+    for t_i, t_name in enumerate(p_child_names):
+        t_data.append({"__type__": "cc.Node", "_name": t_name, "_parent": {"__id__": 2}, "_children": [], "_components": []})
+    return t_data
+
+
+def refactored_node_prefab(p_component_type):
+    """同名同路径节点，仅组件类型不同（模拟 cc.Label → cc.RichText 重构）。"""
+    return [
+        {"__type__": "cc.Prefab", "data": {"__id__": 1}},
+        {"__type__": "cc.Node", "_name": "Root", "_children": [{"__id__": 2}], "_components": []},
+        {"__type__": "cc.Node", "_name": "Tip", "_parent": {"__id__": 1}, "_children": [], "_components": [{"__id__": 3}]},
+        {"__type__": p_component_type, "node": {"__id__": 2}},
+    ]
+
+
 def duplicate_identity_prefab(p_first_parent, p_second_parent):
     return [
         {"__type__": "cc.Prefab", "data": {"__id__": 1}},
@@ -172,6 +240,82 @@ class PfbDiffTests(unittest.TestCase):
         t_cap = score_part(t_match, "duplicate_identity_cap")
         self.assertEqual("cap", t_cap["kind"])
         self.assertEqual(91, t_cap["value"])
+
+    def test_id_shift_produces_no_changes(self):
+        """不变量：仅 __id__ 布局偏移、语义等价的两个文件，diff 必须为空。
+
+        覆盖事件 target、props 引用剔除等所有 id 敏感路径；
+        对 fixtures 和 testPfb 全部真实 prefab 各跑一遍。
+        """
+        t_files = sorted(
+            t_path
+            for t_dir in (FIXTURES, TEST_PFB)
+            for t_path in (os.path.join(t_dir, t_name) for t_name in os.listdir(t_dir))
+            if t_path.endswith(".prefab")
+        )
+        self.assertTrue(t_files)
+        for t_path in t_files:
+            with open(t_path, "r", encoding="utf-8") as t_file:
+                t_data = json.load(t_file)
+            with tempfile.TemporaryDirectory() as t_dir:
+                t_shifted = write_temp_prefab(t_dir, "shifted.prefab", id_shifted_copy(t_data))
+                t_result = diff_prefabs(t_path, t_shifted)
+            t_changes = [t_change for t_change in t_result.changes if t_change.category != "warning"]
+            self.assertEqual([], t_changes, "id shift caused false positives in %s: %s" % (
+                os.path.basename(t_path),
+                [(t_change.category, t_change.type, t_change.field) for t_change in t_changes[:5]],
+            ))
+
+    def test_toggle_check_event_change_is_detected(self):
+        with tempfile.TemporaryDirectory() as t_dir:
+            t_before = write_temp_prefab(t_dir, "before.prefab", toggle_prefab("onToggleA"))
+            t_after = write_temp_prefab(t_dir, "after.prefab", toggle_prefab("onToggleB"))
+            t_result = diff_prefabs(t_before, t_after)
+        t_events = [t_change for t_change in t_result.changes if t_change.category == "event"]
+        self.assertEqual(1, len(t_events))
+        self.assertEqual("high", t_events[0].risk)
+
+    def test_event_retarget_is_still_detected(self):
+        """target 解析成路径后，真实的换绑（同 handler 绑到另一个节点）仍要检出。"""
+        with tempfile.TemporaryDirectory() as t_dir:
+            t_before = write_temp_prefab(t_dir, "before.prefab", retarget_prefab(2))
+            t_after = write_temp_prefab(t_dir, "after.prefab", retarget_prefab(3))
+            t_result = diff_prefabs(t_before, t_after)
+        t_events = [t_change for t_change in t_result.changes if t_change.category == "event"]
+        self.assertEqual(1, len(t_events))
+        self.assertEqual("high", t_events[0].risk)
+        self.assertEqual("Root/TargetA", t_events[0].before[0]["target"])
+        self.assertEqual("Root/TargetB", t_events[0].after[0]["target"])
+
+    def test_crossname_empty_container_is_not_matched(self):
+        """问题4：跨名 + 特征域全空 + 子节点不重叠的容器不应被误判为重命名，而是删除+新增。"""
+        with tempfile.TemporaryDirectory() as t_dir:
+            t_before = write_temp_prefab(t_dir, "before.prefab", empty_container_prefab("propBox", ["prop1", "prop2", "prop3"]))
+            t_after = write_temp_prefab(t_dir, "after.prefab", empty_container_prefab("charBox", ["hero1", "hero2", "hero3"]))
+            t_result = diff_prefabs(t_before, t_after)
+        t_node_types = [(t_change.type, t_change.before_path or t_change.after_path)
+                        for t_change in t_result.changes if t_change.category == "node"]
+        self.assertIn(("deleted", "Root/propBox"), t_node_types)
+        self.assertIn(("added", "Root/charBox"), t_node_types)
+        self.assertFalse(any(t_type in ("renamed", "moved", "moved_and_renamed") and "Box" in t_path
+                             for t_type, t_path in t_node_types))
+
+    def test_samename_refactored_node_still_matches(self):
+        """问题4 同名放行：同名同路径节点仅组件类型变化时仍应匹配（不拆成删除+新增）。"""
+        with tempfile.TemporaryDirectory() as t_dir:
+            t_before = write_temp_prefab(t_dir, "before.prefab", refactored_node_prefab("cc.Label"))
+            t_after = write_temp_prefab(t_dir, "after.prefab", refactored_node_prefab("cc.RichText"))
+            t_result = diff_prefabs(t_before, t_after)
+        self.assertTrue(any(
+            t_match["before_path"] == "Root/Tip" and t_match["after_path"] == "Root/Tip"
+            and t_match["status"] != "unmatched"
+            for t_match in t_result.matches
+        ))
+        self.assertFalse(any(
+            t_change.category == "node" and t_change.type in ("deleted", "added")
+            and (t_change.before_path == "Root/Tip" or t_change.after_path == "Root/Tip")
+            for t_change in t_result.changes
+        ))
 
     def test_rename_is_not_delete_plus_add(self):
         t_result = diff_prefabs(fixture("base.prefab"), fixture("renamed.prefab"))

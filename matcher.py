@@ -380,24 +380,32 @@ def _has_strong_identity_features(p_node: PrefabNode) -> bool:
 
 def _score_pair(p_before: PrefabNode, p_after: PrefabNode, p_parent_map: Optional[Dict[str, str]] = None) -> MatchScore:
     t_score = ScoreBuilder()
-    if p_before.name == p_after.name:
+    t_same_name = p_before.name == p_after.name
+    if t_same_name:
         t_score.add("same_name", 12)
     elif _is_low_info(p_before.name) or _is_low_info(p_after.name):
         t_score.penalty("low_info_name", 4)
 
-    if p_before.fingerprint.structure_hash == p_after.fingerprint.structure_hash:
+    # same_*_hash 仅在底层特征域非空、或两节点同名时才发放：
+    # 否则两个空容器的"空 == 空"会被当成相似证据（hash 匹配等价于双方特征
+    # 集相同，故只需检查 before 一侧）。同名放行保留了同名节点被重构的场景
+    # （如 cc.Label → cc.RichText），避免把同一节点误拆成删除+新增。
+    t_has_structure = bool(p_before.component_types() or p_before.children)
+    if p_before.fingerprint.structure_hash == p_after.fingerprint.structure_hash and (t_has_structure or t_same_name):
         t_score.add("same_structure_hash", 18)
     else:
         t_score.overlap(p_before.component_types(), p_after.component_types(), 18, "component_overlap")
         t_score.overlap([t_child.name for t_child in p_before.children], [t_child.name for t_child in p_after.children], 8, "child_name_overlap")
 
-    if p_before.fingerprint.visual_hash == p_after.fingerprint.visual_hash:
+    t_has_visual = bool(_resources(p_before) or _label_texts(p_before))
+    if p_before.fingerprint.visual_hash == p_after.fingerprint.visual_hash and (t_has_visual or t_same_name):
         t_score.add("same_visual_hash", 20)
     else:
         t_score.overlap(_resources(p_before), _resources(p_after), 18, "resource_overlap")
         t_score.overlap(_label_texts(p_before), _label_texts(p_after), 14, "label_overlap")
 
-    if p_before.fingerprint.behavior_hash == p_after.fingerprint.behavior_hash:
+    t_has_behavior = bool(p_before.script_types() or _events(p_before))
+    if p_before.fingerprint.behavior_hash == p_after.fingerprint.behavior_hash and (t_has_behavior or t_same_name):
         t_score.add("same_behavior_hash", 22)
     else:
         t_score.overlap(p_before.script_types(), p_after.script_types(), 18, "script_overlap")

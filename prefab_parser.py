@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Optional
 
-from config import BUTTON_EVENT_FIELDS, COCOS_INTERNAL_FIELDS, LABEL_FIELDS, NODE_PROP_FIELDS, RESOURCE_FIELDS
+from config import COCOS_INTERNAL_FIELDS, EVENT_FIELDS, LABEL_FIELDS, NODE_PROP_FIELDS, RESOURCE_FIELDS
 from prefab_loader import load_prefab_json
 from prefab_model import PrefabComponent, PrefabDocument, PrefabNode
 
@@ -40,8 +40,21 @@ def parse_prefab(file_path: str) -> PrefabDocument:
         t_root.sibling_index = t_index
         _assign_paths(t_root, "", "")
 
+    _resolve_event_targets(t_doc, t_nodes)
+
     t_doc.nodes = sorted(t_nodes, key=lambda p_node: p_node.internal_path or p_node.name)
     return t_doc
+
+
+def _resolve_event_targets(p_doc: PrefabDocument, p_nodes: List[PrefabNode]) -> None:
+    # target 的 __id__ 是对象在文件中的下标，两个版本间会整体偏移，
+    # 直接对比必然误报；解析成节点路径后才是稳定的语义值。
+    # 必须在 _assign_paths 之后执行，否则路径全为空串。
+    for t_node in p_nodes:
+        for t_event in t_node.events:
+            t_target_id = t_event.get("target")
+            t_target_node = p_doc.node_by_id.get(t_target_id) if t_target_id is not None else None
+            t_event["target"] = t_target_node.path if t_target_node is not None else None
 
 
 def _parse_node(p_doc: PrefabDocument, p_id: int, p_obj: Dict[str, Any]) -> PrefabNode:
@@ -132,10 +145,11 @@ def _extract_component_props(p_obj: Dict[str, Any]) -> Dict[str, Any]:
     t_props = {}
     t_type = str(p_obj.get("__type__", "UnknownComponent"))
     t_resource_fields = set(RESOURCE_FIELDS.get(t_type, []))
+    t_event_fields = set(EVENT_FIELDS.get(t_type, []))
     for t_key, t_value in p_obj.items():
         if t_key in COCOS_INTERNAL_FIELDS:
             continue
-        if t_key in t_resource_fields or t_key in BUTTON_EVENT_FIELDS:
+        if t_key in t_resource_fields or t_key in t_event_fields:
             continue
         if _contains_id_ref(t_value):
             continue
@@ -154,11 +168,13 @@ def _extract_resources(p_type: str, p_obj: Dict[str, Any]) -> List[Dict[str, Any
 
 def _extract_events(p_type: str, p_obj: Dict[str, Any]) -> List[Dict[str, Any]]:
     t_events = []
-    if p_type != "cc.Button":
-        return t_events
-    for t_field in BUTTON_EVENT_FIELDS:
+    for t_field in EVENT_FIELDS.get(p_type, []):
         for t_event in p_obj.get(t_field) or []:
             if not isinstance(t_event, dict):
+                continue
+            if not t_event.get("handler") and not t_event.get("component"):
+                # 编辑器里未绑定函数的空事件槽，无运行时行为，
+                # 计入会误升风险等级、并让无关节点共享空事件特征
                 continue
             t_events.append({
                 "component": p_type,
