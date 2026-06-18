@@ -36,10 +36,11 @@ import gui_shell
 import gui_compare_tab
 import gui_conflict_tab
 import gui_revision_tab
+import gui_branch_tab
 import svn_revision_helper as svnh
 
 # 弹窗发生在各页签模块里，需在这些模块上 stub messagebox
-_BOX_MODULES = (gui_compare_tab, gui_conflict_tab, gui_revision_tab)
+_BOX_MODULES = (gui_compare_tab, gui_conflict_tab, gui_revision_tab, gui_branch_tab)
 
 
 class _DropEvent:
@@ -125,10 +126,11 @@ class GuiSmokeTest(_GuiTestBase):
     # ── 框架 ──
     def test_build_app_constructs_tabs(self):
         # build_app 跑通即说明各页签 + 框架控件全部接线成功
-        self.assertEqual(len(gui.notebook.tabs()), 3)
+        self.assertEqual(len(gui.notebook.tabs()), 4)
         self.assertIsNotNone(gui.compare_tab.gen_btn)
         self.assertIsNotNone(gui.conflict_tab.analyze_all_btn)
         self.assertIsNotNone(gui.revision_tab.compare_btn)
+        self.assertIsNotNone(gui.branch_tab.compare_btn)
 
     # ── 两方对比 ──
     def test_drop_enables_generate_and_writes_report(self):
@@ -244,6 +246,25 @@ class SvnTabSmokeTest(_GuiTestBase):
         self.assertEqual(_count_html(gui_shell.REVISION_REPORTS_DIR), before_n + 1)
         # 还原工作副本，避免影响别的用例
         _svn(["revert", self.trunk_file])
+
+    def test_branch_tab_compare_writes_report(self):
+        tab = gui.branch_tab
+        tab.on_drop(_DropEvent(self.trunk_file))   # 当前=trunk(before)
+        # 目标 = branches/exp 上同名文件(after)
+        tab.target_var.set(self.repo_root.rstrip("/") + "/branches/exp/foo.prefab")
+        tab.rev_var.set("HEAD")
+
+        before_n = _count_html(gui_shell.BRANCH_REPORTS_DIR)
+        tab.do_compare()
+        ok = _wait_until(self.root, lambda: not tab.busy)
+        self.assertTrue(ok, "分支对比应结束并复位 busy")
+        self.assertEqual(_count_html(gui_shell.BRANCH_REPORTS_DIR), before_n + 1)
+
+    def test_branch_apply_branch_swaps_url(self):
+        # _apply_branch 的 best-effort URL 拼接：trunk/... → branches/<name>/...
+        gui.branch_tab.on_drop(_DropEvent(self.trunk_file))
+        gui.branch_tab._apply_branch("exp")
+        self.assertTrue(gui.branch_tab.target_var.get().endswith("/branches/exp/foo.prefab"))
 
 
 if __name__ == "__main__":
