@@ -104,7 +104,11 @@ compile.bat
 ```
 pfb_diff/
 ├── main.py               # 统一入口（有参数走 CLI，无参数启动 GUI）
-├── gui.py                # 桌面 GUI（Tkinter + tkinterdnd2，含 SVN 冲突分析页签）
+├── gui.py                # GUI 编排入口（建窗口、挂页签、装配各模块）
+├── gui_theme.py          #   GUI 配色 / 字体常量
+├── gui_shell.py          #   框架层 AppShell（状态栏、最近报告、页签切换、滚轮）+ 路径工具
+├── gui_compare_tab.py    #   CompareTab：两方对比页签
+├── gui_conflict_tab.py   #   ConflictTab：SVN 冲突分析页签
 ├── pfb_diff.py           # CLI 入口
 ├── svn_conflict_helper.py # SVN 冲突分析（CLI + GUI 共用的分析与概览报告）
 ├── compile.bat           # PyInstaller 打包脚本
@@ -112,7 +116,7 @@ pfb_diff/
 ├── matcher.py            # 节点匹配引擎
 ├── report_html_tree.py   # 树形 HTML 报告生成器
 ├── report_json.py        # JSON 报告生成器
-├── tests/                # 单元测试
+├── tests/                # 单元测试（含 test_gui_smoke.py：无头 GUI 冒烟自检）
 └── reports/              # 自动生成的报告目录（按功能分子目录）
     ├── compare/          #   两方对比报告
     └── svn_conflict/     #   SVN 冲突分析报告
