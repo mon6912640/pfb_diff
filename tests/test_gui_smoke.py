@@ -28,6 +28,12 @@ FIXTURES = os.path.join(ROOT, "tests", "fixtures")
 TEST_SVN = os.path.join(ROOT, "testSvn")
 
 import gui
+import gui_shell
+import gui_compare_tab
+import gui_conflict_tab
+
+# 弹窗发生在各页签模块里，需在这两个模块上 stub messagebox
+_BOX_MODULES = (gui_compare_tab, gui_conflict_tab)
 
 
 class _DropEvent:
@@ -73,15 +79,12 @@ def _wait_until(root, predicate, timeout=60.0):
 class GuiSmokeTest(unittest.TestCase):
     def setUp(self):
         # messagebox.* 是阻塞式模态弹窗，无头测试若真弹出会一直等人点 OK。
-        # 必须在 build_app 前就 stub 掉所有弹窗，让回调里的提示全部静默。
-        self._orig_box = {name: getattr(gui.messagebox, name)
-                          for name in ("showinfo", "showwarning", "showerror")}
-        for name in self._orig_box:
-            setattr(gui.messagebox, name, lambda *a, **k: None)
-
-        # 复位模块级全局，避免上一个用例的残留状态串场
-        gui.conflict_rows = []
-        gui.conflict_busy = False
+        # 各页签模块各自 import 了 messagebox，需逐个 stub，让回调提示全部静默。
+        self._orig_box = []
+        for mod in _BOX_MODULES:
+            for name in ("showinfo", "showwarning", "showerror"):
+                self._orig_box.append((mod, name, getattr(mod.messagebox, name)))
+                setattr(mod.messagebox, name, lambda *a, **k: None)
 
         # 每个用例独立构建一次窗口（shell 在 build_app 内创建）
         self.root = gui.build_app()
@@ -91,9 +94,9 @@ class GuiSmokeTest(unittest.TestCase):
 
     def tearDown(self):
         # 等后台分析线程收尾，避免它的 root.after 回调打到已销毁的窗口
-        _wait_until(self.root, lambda: not gui.conflict_busy, timeout=30.0)
-        for name, fn in self._orig_box.items():
-            setattr(gui.messagebox, name, fn)
+        _wait_until(self.root, lambda: not gui.conflict_tab.busy, timeout=30.0)
+        for mod, name, fn in self._orig_box:
+            setattr(mod.messagebox, name, fn)
         # 取消挂起的 after/after_idle 回调，否则窗口销毁后它们打空
         # 会向 stderr 刷 "invalid command name ... (after script)" 噪音
         try:
@@ -114,7 +117,7 @@ class GuiSmokeTest(unittest.TestCase):
         # build_app 跑通即说明两个页签 + 框架控件全部接线成功
         self.assertEqual(len(gui.notebook.tabs()), 2)
         self.assertIsNotNone(gui.compare_tab.gen_btn)
-        self.assertIsNotNone(gui.analyze_all_btn)
+        self.assertIsNotNone(gui.conflict_tab.analyze_all_btn)
 
     # ── 两方对比 ──
     def test_drop_enables_generate_and_writes_report(self):
@@ -123,9 +126,9 @@ class GuiSmokeTest(unittest.TestCase):
         tab.on_drop_after(_DropEvent(os.path.join(FIXTURES, "comprehensive_after.prefab")))
         self.assertEqual(tab.gen_btn["state"], "normal")
 
-        before = _count_html(gui.COMPARE_REPORTS_DIR)
+        before = _count_html(gui_shell.COMPARE_REPORTS_DIR)
         tab.do_generate()
-        after = _count_html(gui.COMPARE_REPORTS_DIR)
+        after = _count_html(gui_shell.COMPARE_REPORTS_DIR)
         self.assertEqual(after, before + 1, "do_generate 应写出一份 html 报告")
 
     def test_remove_reverts_to_dropzone(self):
@@ -143,27 +146,27 @@ class GuiSmokeTest(unittest.TestCase):
 
     # ── SVN 冲突分析 ──
     def test_conflict_dir_scan_populates_rows(self):
-        gui.on_drop_conflict(_DropEvent(TEST_SVN))
-        self.assertTrue(len(gui.conflict_rows) >= 1, "应扫描出至少一个冲突组")
-        self.assertTrue(any(r["status"] == "ready" for r in gui.conflict_rows))
+        gui.conflict_tab.on_drop(_DropEvent(TEST_SVN))
+        self.assertTrue(len(gui.conflict_tab.rows) >= 1, "应扫描出至少一个冲突组")
+        self.assertTrue(any(r["status"] == "ready" for r in gui.conflict_tab.rows))
 
     def test_conflict_analysis_full_flow(self):
         working = os.path.join(TEST_SVN, "01_TowBat.prefab.working")
-        gui.on_drop_conflict(_DropEvent(working))
-        # load_conflict_working 会自动起后台分析线程；轮询直到完成
-        done = _wait_until(self.root, lambda: not gui.conflict_busy)
+        gui.conflict_tab.on_drop(_DropEvent(working))
+        # load_working 会自动起后台分析线程；轮询直到完成
+        done = _wait_until(self.root, lambda: not gui.conflict_tab.busy)
         self.assertTrue(done, "分析应已结束并复位 busy")
-        self.assertEqual(gui.conflict_rows[0]["status"], "done")
-        self.assertIn("summary", gui.conflict_rows[0])
+        self.assertEqual(gui.conflict_tab.rows[0]["status"], "done")
+        self.assertIn("summary", gui.conflict_tab.rows[0])
 
     # ── 页签切换 ──
     def test_tab_change_switches_recent_dir(self):
         gui.notebook.select(1)
         _drain(self.root)
-        self.assertEqual(gui.shell.current_reports_dir, gui.CONFLICT_REPORTS_DIR)
+        self.assertEqual(gui.shell.current_reports_dir, gui_shell.CONFLICT_REPORTS_DIR)
         gui.notebook.select(0)
         _drain(self.root)
-        self.assertEqual(gui.shell.current_reports_dir, gui.COMPARE_REPORTS_DIR)
+        self.assertEqual(gui.shell.current_reports_dir, gui_shell.COMPARE_REPORTS_DIR)
 
 
 def _count_html(directory):
