@@ -36,20 +36,21 @@ from report_json import write_json_report
 from prefab_parser import parse_prefab
 from svn_conflict_helper import find_conflict_groups, find_group_by_working, analyze_conflict, generate_reports
 
-# ── 常量 ──
-# reports/ 按功能分子目录：每新增一个页签功能就新增一个子目录
-REPORTS_DIR = os.path.join(_PROJECT_ROOT, "reports")
-COMPARE_REPORTS_DIR = os.path.join(REPORTS_DIR, "compare")        # 两方对比报告
-CONFLICT_REPORTS_DIR = os.path.join(REPORTS_DIR, "svn_conflict")  # 冲突分析报告
-
-# 冲突分析的子报告（ours/theirs/交叉对比），最近报告列表里隐藏，从概览页内链接进入
-_SUB_REPORT_RE = re.compile(r"_(ours|theirs|ours_vs_theirs)_\d{8}_\d{6}\.html$")
+# ── 框架层常量/工具（见 gui_shell.py）──
+from gui_shell import (
+    REPORTS_DIR, COMPARE_REPORTS_DIR, CONFLICT_REPORTS_DIR,
+    AppShell, ensure_dir, default_report_paths, strip_path,
+    resource_path, clamp_scrollregion,
+)
 
 # ── 配色（见 gui_theme.py）──
 from gui_theme import (
     BG, CARD_BG, BORDER, TEXT, TEXT_DIM, TEXT_DARK, ACCENT, RED, GREEN, YELLOW,
     PRIMARY_BTN_BG, TAB_SELECTED_BG,
 )
+
+# 框架层单例，build_app() 中创建；各回调通过它读写共享状态
+shell: AppShell = None
 
 
 class AppState:
@@ -68,35 +69,8 @@ state = AppState()
 conflict_rows: list = []   # [{group, name, status, error, overview, summary, auto_open, widgets...}]
 conflict_busy = False
 
-# 最近报告列表当前展示的目录（随页签切换）
-current_reports_dir = COMPARE_REPORTS_DIR
-
 
 # ── 工具 ──
-def _ensure_dir(path: str) -> None:
-    if not os.path.isdir(path):
-        os.makedirs(path)
-
-
-def _safe_name(name: str) -> str:
-    base = os.path.basename(name)
-    if base.endswith(".prefab"):
-        base = base[:-7]
-    return "".join(c if c.isalnum() or c in "-_" else "_" for c in base) or "prefab"
-
-
-def _default_report_paths(before_name: str, after_name: str):
-    _ensure_dir(COMPARE_REPORTS_DIR)
-    bn = _safe_name(before_name)
-    an = _safe_name(after_name)
-    stamp = time.strftime("%Y%m%d_%H%M%S")
-    base = f"{bn}__to__{an}_{stamp}" if bn != an else f"{bn}_diff_{stamp}"
-    return {
-        "html": os.path.join(COMPARE_REPORTS_DIR, base + ".html"),
-        "json": os.path.join(COMPARE_REPORTS_DIR, base + ".json"),
-    }
-
-
 def _parse_info(file_path: str):
     try:
         doc = parse_prefab(file_path)
@@ -105,24 +79,12 @@ def _parse_info(file_path: str):
         return {"ok": False, "error": str(e)}
 
 
-def _strip_path(raw: str) -> str:
-    """tkinterdnd2 Windows 路径可能有 {} 包裹，去掉它"""
-    raw = raw.strip()
-    if raw.startswith("{") and raw.endswith("}"):
-        raw = raw[1:-1]
-    return raw
-
-
-def _open_report(path: str) -> None:
-    webbrowser.open(f"file://{os.path.abspath(path)}")
-
-
 # ═══════════════════════════════════════
 # 页签一：两方对比
 # ═══════════════════════════════════════
 
 def on_drop_before(event):
-    path = _strip_path(event.data)
+    path = strip_path(event.data)
     if not path.lower().endswith(".prefab"):
         messagebox.showwarning("格式错误", f"请选择 .prefab 文件\n当前: {path}")
         return
@@ -133,7 +95,7 @@ def on_drop_before(event):
 
 
 def on_drop_after(event):
-    path = _strip_path(event.data)
+    path = strip_path(event.data)
     if not path.lower().endswith(".prefab"):
         messagebox.showwarning("格式错误", f"请选择 .prefab 文件\n当前: {path}")
         return
@@ -238,17 +200,17 @@ def do_generate():
             result.before_path = state.before_path
         if state.after_path:
             result.after_path = state.after_path
-        paths = _default_report_paths(state.before_name, state.after_name)
+        paths = default_report_paths(state.before_name, state.after_name)
         write_tree_report(result, paths["html"])
         write_json_report(result, paths["json"])
 
-        status_lbl.config(text=f"✅ 已完成: {os.path.basename(paths['html'])}")
-        view_btn.config(state="normal", command=lambda: _open_report(paths["html"]))
-        load_recent_reports()
+        shell.set_status(f"✅ 已完成: {os.path.basename(paths['html'])}")
+        view_btn.config(state="normal", command=lambda: shell.open_report(paths["html"]))
+        shell.load_recent_reports()
         messagebox.showinfo("完成", "报告生成成功")
     except Exception as e:
         messagebox.showerror("失败", f"生成失败: {e}")
-        status_lbl.config(text="❌ 生成失败")
+        shell.set_status("❌ 生成失败")
     finally:
         check_ready()
 
@@ -258,7 +220,7 @@ def do_generate():
 # ═══════════════════════════════════════
 
 def on_drop_conflict(event):
-    path = _strip_path(event.data)
+    path = strip_path(event.data)
     if os.path.isdir(path):
         load_conflict_dir(path)
     elif path.endswith(".working"):
@@ -410,7 +372,7 @@ def _render_row_status(i: int):
                        f"仅ours {s['only_ours_nodes']} · 仅theirs {s['only_theirs_nodes']}")
             color = GREEN
         row["w_summary"].config(text=summary, fg=color)
-        row["w_view"].config(state="normal", command=lambda p=row["overview"]: _open_report(p))
+        row["w_view"].config(state="normal", command=lambda p=row["overview"]: shell.open_report(p))
     elif row["status"] == "error":
         row["w_summary"].config(text=row.get("error", ""), fg=RED)
 
@@ -455,14 +417,14 @@ def _start_conflict_jobs(indices: list, auto_open: bool = False):
 
 def _conflict_worker(jobs: list):
     """后台线程：逐组分析。所有 UI 更新通过 root.after 回主线程。"""
-    _ensure_dir(CONFLICT_REPORTS_DIR)
+    ensure_dir(CONFLICT_REPORTS_DIR)
     for i in jobs:
         row = conflict_rows[i]
         root.after(0, _on_row_running, i)
         try:
             data = analyze_conflict(
                 row["group"],
-                progress=lambda m: root.after(0, status_lbl.config, {"text": m.strip()}),
+                progress=lambda m: root.after(0, shell.set_status, m.strip()),
             )
             overview = generate_reports(data, CONFLICT_REPORTS_DIR, progress=lambda m: None)
             root.after(0, _on_row_done, i, data["summary"], overview)
@@ -483,7 +445,7 @@ def _on_row_done(i: int, summary: dict, overview: str):
     row["overview"] = overview
     _render_row_status(i)
     if row.get("auto_open"):
-        _open_report(overview)
+        shell.open_report(overview)
 
 
 def _on_row_fail(i: int, error: str):
@@ -498,63 +460,8 @@ def _on_all_jobs_done():
     _set_conflict_controls(True)
     done = sum(1 for r in conflict_rows if r["status"] == "done")
     failed = sum(1 for r in conflict_rows if r["status"] == "error")
-    status_lbl.config(text=f"✅ 冲突分析完成 {done} 组" + (f"，失败 {failed} 组" if failed else ""))
-    load_recent_reports()
-
-
-# ═══════════════════════════════════════
-# 最近报告
-# ═══════════════════════════════════════
-
-def load_recent_reports():
-    for widget in recent_frame.winfo_children():
-        widget.destroy()
-
-    _ensure_dir(current_reports_dir)
-    is_compare_dir = current_reports_dir == COMPARE_REPORTS_DIR
-    files = []
-    for f in os.listdir(current_reports_dir):
-        if not f.endswith(".html"):
-            continue
-        if _SUB_REPORT_RE.search(f):
-            continue  # 冲突分析的子报告从概览页进入，列表里不重复展示
-        if is_compare_dir and "_conflict_overview_" in f:
-            continue  # 历史遗留在根目录的冲突概览不混入两方对比列表
-        p = os.path.join(current_reports_dir, f)
-        if not os.path.isfile(p):
-            continue
-        files.append((p, os.path.getmtime(p)))
-    files.sort(key=lambda x: x[1], reverse=True)
-
-    if not files:
-        tk.Label(recent_frame, text="暂无报告", bg=CARD_BG, fg=TEXT_DARK, font=("Microsoft YaHei", 10)).pack(pady=10)
-        return
-
-    for path, mtime in files[:50]:
-        name = os.path.basename(path)
-        t = time.strftime("%m-%d %H:%M", time.localtime(mtime))
-        tag = "🌲" if "_conflict_overview_" in name else "📊"
-        row = tk.Frame(recent_frame, bg=CARD_BG)
-        row.pack(fill="x", padx=4, pady=2)
-        tk.Label(row, text=f"{tag} {name}", bg=CARD_BG, fg=TEXT, font=("Microsoft YaHei", 9, "bold")).pack(side="left")
-        tk.Label(row, text=t, bg=CARD_BG, fg=TEXT_DARK, font=("Microsoft YaHei", 9)).pack(side="left", padx=8)
-        tk.Button(
-            row, text="👁", bg=CARD_BG, fg=ACCENT, bd=0,
-            command=lambda p=path: _open_report(p),
-        ).pack(side="right")
-        tk.Button(
-            row, text="📂", bg=CARD_BG, fg=TEXT_DIM, bd=0,
-            command=lambda p=path: os.startfile(os.path.dirname(p)),
-        ).pack(side="right", padx=4)
-
-    recent_canvas.yview_moveto(0)  # 重载后回到列表顶部
-
-
-def _get_resource_path(rel: str) -> str:
-    """兼容 PyInstaller 打包后的资源路径"""
-    if hasattr(sys, "_MEIPASS"):
-        return os.path.join(sys._MEIPASS, rel)
-    return os.path.join(_PROJECT_ROOT, rel)
+    shell.set_status(f"✅ 冲突分析完成 {done} 组" + (f"，失败 {failed} 组" if failed else ""))
+    shell.load_recent_reports()
 
 
 # ═══════════════════════════════════════
@@ -682,57 +589,19 @@ def _build_conflict_tab(parent):
     conflict_canvas.pack(side="left", fill="both", expand=True, padx=4, pady=4)
     scrollbar.pack(side="right", fill="y")
 
-    _scroll_canvases.append(conflict_canvas)
+    shell.register_scroll(conflict_canvas)
 
     _populate_conflict_rows([])
 
 
-_scroll_canvases: list = []  # 支持鼠标滚轮的 Canvas 列表（冲突组列表、最近报告列表）
-
-
-def _clamp_scrollregion(canvas):
-    """滚动区域夹紧到内容大小；内容不足一屏时撑满视口高度，使列表不可滚动"""
-    bbox = canvas.bbox("all")
-    content_w = bbox[2] if bbox else 0
-    content_h = bbox[3] if bbox else 0
-    view_h = max(canvas.winfo_height(), 1)
-    canvas.configure(scrollregion=(0, 0, content_w, max(content_h, view_h)))
-    if content_h <= view_h:
-        canvas.yview_moveto(0)
-
-
 def _update_scroll_region():
     # 等布局完成后再取 bbox，避免拿到重建前的旧尺寸
-    conflict_canvas.after_idle(lambda: _clamp_scrollregion(conflict_canvas))
-
-
-def _on_mousewheel(event):
-    # 滚动鼠标所在的那个列表；内容不足一屏时不滚动
-    w = root.winfo_containing(event.x_root, event.y_root)
-    while w is not None:
-        if w in _scroll_canvases:
-            if w.yview() != (0.0, 1.0):
-                w.yview_scroll(int(-event.delta / 120), "units")
-            return
-        w = w.master
+    conflict_canvas.after_idle(lambda: clamp_scrollregion(conflict_canvas))
 
 
 # ═══════════════════════════════════════
 # 主窗口
 # ═══════════════════════════════════════
-
-def _on_tab_changed(event):
-    """切换页签时，最近报告列表切换到对应目录"""
-    global current_reports_dir
-    idx = event.widget.index(event.widget.select())
-    if idx == 1:
-        current_reports_dir = CONFLICT_REPORTS_DIR
-        recent_title_lbl.config(text="📁 最近生成的报告（冲突分析）")
-    else:
-        current_reports_dir = COMPARE_REPORTS_DIR
-        recent_title_lbl.config(text="📁 最近生成的报告（两方对比）")
-    load_recent_reports()
-
 
 def build_app():
     """构建主窗口及全部子控件，但不进入事件循环。
@@ -740,14 +609,15 @@ def build_app():
     返回根窗口。拆出此函数是为了让无头测试能构建完整 UI 并驱动回调，
     而不阻塞在 mainloop 上；run_gui 只是它加一句 mainloop 的薄封装。
     """
-    global root, status_lbl, recent_frame, recent_title_lbl, recent_canvas, notebook
+    global root, shell, notebook
 
     root = TkinterDnD.Tk()
+    shell = AppShell(root)
     root.title("PfbDiff 预制体对比工具")
     root.geometry("920x760")
     root.configure(bg=BG)
 
-    _icon_path = _get_resource_path("icon.ico")
+    _icon_path = resource_path("icon.ico")
     if os.path.isfile(_icon_path):
         try:
             root.iconbitmap(_icon_path)
@@ -780,36 +650,14 @@ def build_app():
 
     _build_compare_tab(tab_compare)
     _build_conflict_tab(tab_conflict)
-    notebook.bind("<<NotebookTabChanged>>", _on_tab_changed)
+    notebook.bind("<<NotebookTabChanged>>", shell.on_tab_changed)
 
-    # 状态栏
-    status_lbl = tk.Label(root, text="就绪", bg=BG, fg=TEXT_DARK, font=("Microsoft YaHei", 9))
-    status_lbl.pack(anchor="w", padx=16, pady=(0, 4))
+    # 状态栏 + 最近报告列表（两个页签共用），均由 AppShell 持有
+    shell.build_status_bar(root)
+    shell.build_recent_panel(root)
 
-    # 最近报告（两个页签共用，滚动列表）
-    recent_container = tk.Frame(root, bg=CARD_BG, highlightbackground=BORDER, highlightthickness=1)
-    recent_container.pack(fill="x", padx=16, pady=(0, 12))
-    recent_title_lbl = tk.Label(recent_container, text="📁 最近生成的报告（两方对比）", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 10, "bold"))
-    recent_title_lbl.pack(anchor="w", padx=8, pady=8)
-
-    recent_body = tk.Frame(recent_container, bg=CARD_BG)
-    recent_body.pack(fill="x", padx=4, pady=(0, 8))
-    recent_canvas = tk.Canvas(recent_body, bg=CARD_BG, highlightthickness=0, height=150)
-    recent_scrollbar = ttk.Scrollbar(recent_body, orient="vertical", command=recent_canvas.yview)
-    recent_frame = tk.Frame(recent_canvas, bg=CARD_BG)
-
-    recent_frame.bind("<Configure>", lambda e: recent_canvas.after_idle(lambda: _clamp_scrollregion(recent_canvas)))
-    recent_window = recent_canvas.create_window((0, 0), window=recent_frame, anchor="nw")
-    recent_canvas.bind("<Configure>", lambda e: (recent_canvas.itemconfig(recent_window, width=e.width),
-                                                 recent_canvas.after_idle(lambda: _clamp_scrollregion(recent_canvas))))
-    recent_canvas.configure(yscrollcommand=recent_scrollbar.set)
-
-    recent_canvas.pack(side="left", fill="x", expand=True, padx=4)
-    recent_scrollbar.pack(side="right", fill="y")
-    _scroll_canvases.append(recent_canvas)
-
-    root.bind_all("<MouseWheel>", _on_mousewheel)
-    load_recent_reports()
+    root.bind_all("<MouseWheel>", shell.on_mousewheel)
+    shell.load_recent_reports()
 
     return root
 

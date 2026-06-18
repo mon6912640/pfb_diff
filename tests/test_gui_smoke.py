@@ -84,17 +84,15 @@ class GuiSmokeTest(unittest.TestCase):
         gui.conflict_rows = []
         gui.conflict_busy = False
 
-        # 每个用例独立构建一次窗口
+        # 每个用例独立构建一次窗口（shell 在 build_app 内创建）
         self.root = gui.build_app()
         self.root.withdraw()
-        # 拦截开浏览器 / 打开资源管理器的副作用
-        self._orig_open = gui._open_report
-        gui._open_report = lambda p: None
+        # 拦截开浏览器副作用：shell 是新实例，覆盖其方法即可，无需还原
+        gui.shell.open_report = lambda p: None
 
     def tearDown(self):
         # 等后台分析线程收尾，避免它的 root.after 回调打到已销毁的窗口
         _wait_until(self.root, lambda: not gui.conflict_busy, timeout=30.0)
-        gui._open_report = self._orig_open
         for name, fn in self._orig_box.items():
             setattr(gui.messagebox, name, fn)
         # 取消挂起的 after/after_idle 回调，否则窗口销毁后它们打空
@@ -160,10 +158,10 @@ class GuiSmokeTest(unittest.TestCase):
     def test_tab_change_switches_recent_dir(self):
         gui.notebook.select(1)
         _drain(self.root)
-        self.assertEqual(gui.current_reports_dir, gui.CONFLICT_REPORTS_DIR)
+        self.assertEqual(gui.shell.current_reports_dir, gui.CONFLICT_REPORTS_DIR)
         gui.notebook.select(0)
         _drain(self.root)
-        self.assertEqual(gui.current_reports_dir, gui.COMPARE_REPORTS_DIR)
+        self.assertEqual(gui.shell.current_reports_dir, gui.COMPARE_REPORTS_DIR)
 
 
 def _count_html(directory):
