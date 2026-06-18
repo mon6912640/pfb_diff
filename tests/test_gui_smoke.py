@@ -80,7 +80,6 @@ class GuiSmokeTest(unittest.TestCase):
             setattr(gui.messagebox, name, lambda *a, **k: None)
 
         # 复位模块级全局，避免上一个用例的残留状态串场
-        gui.state = gui.AppState()
         gui.conflict_rows = []
         gui.conflict_busy = False
 
@@ -114,30 +113,33 @@ class GuiSmokeTest(unittest.TestCase):
     def test_build_app_constructs_both_tabs(self):
         # build_app 跑通即说明两个页签 + 框架控件全部接线成功
         self.assertEqual(len(gui.notebook.tabs()), 2)
-        self.assertIsNotNone(gui.gen_btn)
+        self.assertIsNotNone(gui.compare_tab.gen_btn)
         self.assertIsNotNone(gui.analyze_all_btn)
 
     # ── 两方对比 ──
     def test_drop_enables_generate_and_writes_report(self):
-        gui.on_drop_before(_DropEvent(os.path.join(FIXTURES, "comprehensive_before.prefab")))
-        gui.on_drop_after(_DropEvent(os.path.join(FIXTURES, "comprehensive_after.prefab")))
-        self.assertEqual(gui.gen_btn["state"], "normal")
+        tab = gui.compare_tab
+        tab.on_drop_before(_DropEvent(os.path.join(FIXTURES, "comprehensive_before.prefab")))
+        tab.on_drop_after(_DropEvent(os.path.join(FIXTURES, "comprehensive_after.prefab")))
+        self.assertEqual(tab.gen_btn["state"], "normal")
 
         before = _count_html(gui.COMPARE_REPORTS_DIR)
-        gui.do_generate()
+        tab.do_generate()
         after = _count_html(gui.COMPARE_REPORTS_DIR)
         self.assertEqual(after, before + 1, "do_generate 应写出一份 html 报告")
 
     def test_remove_reverts_to_dropzone(self):
-        gui.on_drop_before(_DropEvent(os.path.join(FIXTURES, "comprehensive_before.prefab")))
-        self.assertEqual(gui.gen_btn["state"], "normal" if gui.state.after_file else "disabled")
-        gui.remove_before()
-        self.assertIsNone(gui.state.before_file)
-        self.assertEqual(gui.gen_btn["state"], "disabled")
+        tab = gui.compare_tab
+        tab.on_drop_before(_DropEvent(os.path.join(FIXTURES, "comprehensive_before.prefab")))
+        self.assertEqual(tab.gen_btn["state"], "normal" if tab.state.after_file else "disabled")
+        tab.remove_before()
+        self.assertIsNone(tab.state.before_file)
+        self.assertEqual(tab.gen_btn["state"], "disabled")
 
     def test_non_prefab_drop_is_rejected(self):
-        gui.on_drop_before(_DropEvent(os.path.join(FIXTURES, "does_not_exist.txt")))
-        self.assertIsNone(gui.state.before_file)
+        tab = gui.compare_tab
+        tab.on_drop_before(_DropEvent(os.path.join(FIXTURES, "does_not_exist.txt")))
+        self.assertIsNone(tab.state.before_file)
 
     # ── SVN 冲突分析 ──
     def test_conflict_dir_scan_populates_rows(self):

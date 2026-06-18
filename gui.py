@@ -53,166 +53,14 @@ from gui_theme import (
 shell: AppShell = None
 
 
-class AppState:
-    def __init__(self):
-        self.before_file: str | None = None
-        self.after_file: str | None = None
-        self.before_name: str = ""
-        self.after_name: str = ""
-        self.before_path: str = ""
-        self.after_path: str = ""
+# 「📊 两方对比」页签：实现见 gui_compare_tab.py，实例在 build_app() 创建
+from gui_compare_tab import CompareTab
 
-
-state = AppState()
+compare_tab: CompareTab = None
 
 # 冲突分析页签状态
 conflict_rows: list = []   # [{group, name, status, error, overview, summary, auto_open, widgets...}]
 conflict_busy = False
-
-
-# ── 工具 ──
-def _parse_info(file_path: str):
-    try:
-        doc = parse_prefab(file_path)
-        return {"ok": True, "node_count": len(doc.nodes)}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
-
-# ═══════════════════════════════════════
-# 页签一：两方对比
-# ═══════════════════════════════════════
-
-def on_drop_before(event):
-    path = strip_path(event.data)
-    if not path.lower().endswith(".prefab"):
-        messagebox.showwarning("格式错误", f"请选择 .prefab 文件\n当前: {path}")
-        return
-    state.before_file = path
-    state.before_name = os.path.basename(path)
-    state.before_path = path
-    update_before_ui()
-
-
-def on_drop_after(event):
-    path = strip_path(event.data)
-    if not path.lower().endswith(".prefab"):
-        messagebox.showwarning("格式错误", f"请选择 .prefab 文件\n当前: {path}")
-        return
-    state.after_file = path
-    state.after_name = os.path.basename(path)
-    state.after_path = path
-    update_after_ui()
-
-
-def browse_before():
-    path = filedialog.askopenfilename(filetypes=[("Prefab files", "*.prefab")])
-    if not path:
-        return
-    state.before_file = path
-    state.before_name = os.path.basename(path)
-    state.before_path = path
-    update_before_ui()
-
-
-def browse_after():
-    path = filedialog.askopenfilename(filetypes=[("Prefab files", "*.prefab")])
-    if not path:
-        return
-    state.after_file = path
-    state.after_name = os.path.basename(path)
-    state.after_path = path
-    update_after_ui()
-
-
-def remove_before():
-    state.before_file = None
-    state.before_name = ""
-    state.before_path = ""
-    update_before_ui()
-
-
-def remove_after():
-    state.after_file = None
-    state.after_name = ""
-    state.after_path = ""
-    update_after_ui()
-
-
-def update_before_ui():
-    if state.before_file:
-        info = _parse_info(state.before_file)
-        before_name_lbl.config(text=state.before_name)
-        if info["ok"]:
-            before_meta_lbl.config(text=f"📄 {info['node_count']} 节点")
-        else:
-            before_meta_lbl.config(text=f"⚠️ {info['error']}")
-        before_path_lbl.config(text=state.before_path)
-        before_drop_frame.pack_forget()
-        before_info_frame.pack(fill="both", expand=True, padx=8, pady=8)
-    else:
-        before_name_lbl.config(text="")
-        before_meta_lbl.config(text="")
-        before_path_lbl.config(text="")
-        before_info_frame.pack_forget()
-        before_drop_frame.pack(fill="both", expand=True, padx=8, pady=8)
-    check_ready()
-
-
-def update_after_ui():
-    if state.after_file:
-        info = _parse_info(state.after_file)
-        after_name_lbl.config(text=state.after_name)
-        if info["ok"]:
-            after_meta_lbl.config(text=f"📄 {info['node_count']} 节点")
-        else:
-            after_meta_lbl.config(text=f"⚠️ {info['error']}")
-        after_path_lbl.config(text=state.after_path)
-        after_drop_frame.pack_forget()
-        after_info_frame.pack(fill="both", expand=True, padx=8, pady=8)
-    else:
-        after_name_lbl.config(text="")
-        after_meta_lbl.config(text="")
-        after_path_lbl.config(text="")
-        after_info_frame.pack_forget()
-        after_drop_frame.pack(fill="both", expand=True, padx=8, pady=8)
-    check_ready()
-
-
-def check_ready():
-    ready = bool(state.before_file and state.after_file)
-    gen_btn.config(
-        state="normal" if ready else "disabled",
-        text="🔍 生成对比报告" if ready else "请先拖入两个 prefab",
-    )
-
-
-def do_generate():
-    if not state.before_file or not state.after_file:
-        messagebox.showwarning("提示", "请先选择两个 prefab 文件")
-        return
-    gen_btn.config(state="disabled", text="⏳ 正在生成...")
-    root.update()
-
-    try:
-        result = diff_prefabs(state.before_file, state.after_file)
-        if state.before_path:
-            result.before_path = state.before_path
-        if state.after_path:
-            result.after_path = state.after_path
-        paths = default_report_paths(state.before_name, state.after_name)
-        write_tree_report(result, paths["html"])
-        write_json_report(result, paths["json"])
-
-        shell.set_status(f"✅ 已完成: {os.path.basename(paths['html'])}")
-        view_btn.config(state="normal", command=lambda: shell.open_report(paths["html"]))
-        shell.load_recent_reports()
-        messagebox.showinfo("完成", "报告生成成功")
-    except Exception as e:
-        messagebox.showerror("失败", f"生成失败: {e}")
-        shell.set_status("❌ 生成失败")
-    finally:
-        check_ready()
 
 
 # ═══════════════════════════════════════
@@ -468,80 +316,6 @@ def _on_all_jobs_done():
 # 界面构建
 # ═══════════════════════════════════════
 
-def _build_compare_tab(parent):
-    global before_drop_frame, before_info_frame, before_name_lbl, before_meta_lbl, before_path_lbl
-    global after_drop_frame, after_info_frame, after_name_lbl, after_meta_lbl, after_path_lbl
-    global gen_btn, view_btn
-
-    drop_area = tk.Frame(parent, bg=BG)
-    drop_area.pack(fill="both", expand=True, padx=8, pady=8)
-    drop_area.grid_columnconfigure(0, weight=1)
-    drop_area.grid_columnconfigure(1, weight=1)
-    drop_area.grid_rowconfigure(0, weight=1)
-
-    # ── Before 卡片 ──
-    before_card = tk.Frame(drop_area, bg=CARD_BG, highlightbackground=BORDER, highlightthickness=2)
-    before_card.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
-
-    before_drop_frame = tk.Frame(before_card, bg=CARD_BG)
-    before_drop_frame.pack(fill="both", expand=True)
-    before_drop_frame.drop_target_register(DND_FILES)
-    before_drop_frame.dnd_bind("<<Drop>>", on_drop_before)
-
-    tk.Label(before_drop_frame, text="⬅ Before（旧版本）", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 10, "bold")).pack(anchor="w", padx=8, pady=(8, 0))
-    tk.Label(before_drop_frame, text="拖入旧版本 .prefab", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 11)).pack(expand=True)
-    tk.Label(before_drop_frame, text="或点击选择文件", bg=CARD_BG, fg=TEXT_DARK, font=("Microsoft YaHei", 9)).pack()
-    tk.Button(before_drop_frame, text="📂 浏览...", bg=CARD_BG, fg=ACCENT, bd=0, cursor="hand2", command=browse_before, font=("Microsoft YaHei", 9)).pack(pady=8)
-
-    before_info_frame = tk.Frame(before_card, bg=CARD_BG)
-    tk.Label(before_info_frame, text="⬅ Before（旧版本）", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 10, "bold")).pack(anchor="w", padx=8, pady=(8, 0))
-    before_name_lbl = tk.Label(before_info_frame, text="", bg=CARD_BG, fg=TEXT, font=("Microsoft YaHei", 10, "bold"))
-    before_name_lbl.pack(anchor="w", padx=8, pady=(4, 0))
-    before_meta_lbl = tk.Label(before_info_frame, text="", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 9))
-    before_meta_lbl.pack(anchor="w", padx=8)
-    before_path_lbl = tk.Label(before_info_frame, text="", bg=CARD_BG, fg=TEXT_DARK, font=("Microsoft YaHei", 9))
-    before_path_lbl.pack(anchor="w", padx=8, pady=(2, 0))
-    btn_row = tk.Frame(before_info_frame, bg=CARD_BG)
-    btn_row.pack(anchor="e", padx=8, pady=8)
-    tk.Button(btn_row, text="🗑 移除", bg=CARD_BG, fg=TEXT_DIM, bd=0, cursor="hand2", command=remove_before, font=("Microsoft YaHei", 9)).pack(side="right", padx=4)
-    tk.Button(btn_row, text="📂 浏览...", bg=CARD_BG, fg=ACCENT, bd=0, cursor="hand2", command=browse_before, font=("Microsoft YaHei", 9)).pack(side="right", padx=4)
-
-    # ── After 卡片 ──
-    after_card = tk.Frame(drop_area, bg=CARD_BG, highlightbackground=BORDER, highlightthickness=2)
-    after_card.grid(row=0, column=1, sticky="nsew", padx=8, pady=8)
-
-    after_drop_frame = tk.Frame(after_card, bg=CARD_BG)
-    after_drop_frame.pack(fill="both", expand=True)
-    after_drop_frame.drop_target_register(DND_FILES)
-    after_drop_frame.dnd_bind("<<Drop>>", on_drop_after)
-
-    tk.Label(after_drop_frame, text="➡ After（新版本）", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 10, "bold")).pack(anchor="w", padx=8, pady=(8, 0))
-    tk.Label(after_drop_frame, text="拖入新版本 .prefab", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 11)).pack(expand=True)
-    tk.Label(after_drop_frame, text="或点击选择文件", bg=CARD_BG, fg=TEXT_DARK, font=("Microsoft YaHei", 9)).pack()
-    tk.Button(after_drop_frame, text="📂 浏览...", bg=CARD_BG, fg=ACCENT, bd=0, cursor="hand2", command=browse_after, font=("Microsoft YaHei", 9)).pack(pady=8)
-
-    after_info_frame = tk.Frame(after_card, bg=CARD_BG)
-    tk.Label(after_info_frame, text="➡ After（新版本）", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 10, "bold")).pack(anchor="w", padx=8, pady=(8, 0))
-    after_name_lbl = tk.Label(after_info_frame, text="", bg=CARD_BG, fg=TEXT, font=("Microsoft YaHei", 10, "bold"))
-    after_name_lbl.pack(anchor="w", padx=8, pady=(4, 0))
-    after_meta_lbl = tk.Label(after_info_frame, text="", bg=CARD_BG, fg=TEXT_DIM, font=("Microsoft YaHei", 9))
-    after_meta_lbl.pack(anchor="w", padx=8)
-    after_path_lbl = tk.Label(after_info_frame, text="", bg=CARD_BG, fg=TEXT_DARK, font=("Microsoft YaHei", 9))
-    after_path_lbl.pack(anchor="w", padx=8, pady=(2, 0))
-    btn_row2 = tk.Frame(after_info_frame, bg=CARD_BG)
-    btn_row2.pack(anchor="e", padx=8, pady=8)
-    tk.Button(btn_row2, text="🗑 移除", bg=CARD_BG, fg=TEXT_DIM, bd=0, cursor="hand2", command=remove_after, font=("Microsoft YaHei", 9)).pack(side="right", padx=4)
-    tk.Button(btn_row2, text="📂 浏览...", bg=CARD_BG, fg=ACCENT, bd=0, cursor="hand2", command=browse_after, font=("Microsoft YaHei", 9)).pack(side="right", padx=4)
-
-    # 操作按钮
-    action_bar = tk.Frame(parent, bg=BG)
-    action_bar.pack(fill="x", padx=16, pady=8)
-    gen_btn = tk.Button(action_bar, text="请先拖入两个 prefab", bg=BORDER, fg=TEXT_DIM, bd=0, padx=20, pady=6, cursor="hand2", state="disabled", command=do_generate, font=("Microsoft YaHei", 10, "bold"))
-    gen_btn.pack(side="left")
-    view_btn = tk.Button(action_bar, text="👁 查看树形报告", bg=PRIMARY_BTN_BG, fg=TEXT, bd=0, padx=16, pady=6, cursor="hand2", state="disabled", font=("Microsoft YaHei", 10, "bold"))
-    view_btn.pack(side="left", padx=8)
-
-
 def _build_conflict_tab(parent):
     global conflict_hint_lbl, conflict_list_frame, analyze_all_btn, conflict_canvas
 
@@ -609,7 +383,7 @@ def build_app():
     返回根窗口。拆出此函数是为了让无头测试能构建完整 UI 并驱动回调，
     而不阻塞在 mainloop 上；run_gui 只是它加一句 mainloop 的薄封装。
     """
-    global root, shell, notebook
+    global root, shell, notebook, compare_tab
 
     root = TkinterDnD.Tk()
     shell = AppShell(root)
@@ -648,7 +422,7 @@ def build_app():
     notebook.add(tab_compare, text="  📊 两方对比  ")
     notebook.add(tab_conflict, text="  🌲 SVN 冲突分析  ")
 
-    _build_compare_tab(tab_compare)
+    compare_tab = CompareTab(shell, tab_compare)
     _build_conflict_tab(tab_conflict)
     notebook.bind("<<NotebookTabChanged>>", shell.on_tab_changed)
 
