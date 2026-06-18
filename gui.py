@@ -740,7 +740,12 @@ def _on_tab_changed(event):
     load_recent_reports()
 
 
-def run_gui():
+def build_app():
+    """构建主窗口及全部子控件，但不进入事件循环。
+
+    返回根窗口。拆出此函数是为了让无头测试能构建完整 UI 并驱动回调，
+    而不阻塞在 mainloop 上；run_gui 只是它加一句 mainloop 的薄封装。
+    """
     global root, status_lbl, recent_frame, recent_title_lbl, recent_canvas, notebook
 
     root = TkinterDnD.Tk()
@@ -812,6 +817,11 @@ def run_gui():
     root.bind_all("<MouseWheel>", _on_mousewheel)
     load_recent_reports()
 
+    return root
+
+
+def run_gui():
+    build_app()
     root.mainloop()
 
 
