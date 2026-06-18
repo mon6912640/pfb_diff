@@ -10,12 +10,16 @@
 python gui.py
 ```
 
-启动原生桌面窗口，包含两个页签：
+启动原生桌面窗口，包含四个页签：
 
 - **📊 两方对比**：拖入两个 `.prefab` 文件即可生成树形对比报告
 - **🌲 SVN 冲突分析**：拖入 `.prefab.working` 冲突文件（自动定位同组 merge-left/merge-right，分析完直接打开冲突概览），或拖入整个目录批量扫描所有冲突组，逐组分析后行内直接显示结论（真冲突 / 树级冲突 / 改动一致数量）
+- **📜 版本对比**：拖入 SVN 工作副本内的 `.prefab`，从其历史里选两个端点对比；每个端点可以是某个 revision，或「当前工作副本（含未提交改动）」。覆盖历史考古与提交/合并前自检
+- **🌿 分支对比**：拖入工作副本内的 `.prefab`（当前分支版本），再指定对面分支上同一文件的完整 URL（`@rev` 默认 HEAD），对比两个分支的差异；「列出分支」按钮可在标准 trunk/branches 布局下辅助拼出目标 URL
 
-支持查看历史报告（冲突分析的子报告不在列表里重复展示，从概览页内链接进入）。
+支持查看历史报告（每个页签对应各自的报告子目录；冲突分析的子报告不在列表里重复展示，从概览页内链接进入）。
+
+> **📜 版本对比 / 🌿 分支对比** 依赖系统已安装 `svn` 命令行客户端，且被比较的 `.prefab` 位于一个 SVN 工作副本（WC）内（即 `svn checkout` 下来、能正常提交的工程目录）。鉴权沿用系统已缓存的 svn 凭据；失败时请先在命令行 `svn` 登录一次。
 
 **特点**：使用 `tkinterdnd2` 实现原生拖放，**拖放可直接获取文件完整路径**（如 `C:\work\...\xxx.prefab`），报告中会显示原始路径方便区分。
 
@@ -109,6 +113,9 @@ pfb_diff/
 ├── gui_shell.py          #   框架层 AppShell（状态栏、最近报告、页签切换、滚轮）+ 路径工具
 ├── gui_compare_tab.py    #   CompareTab：两方对比页签
 ├── gui_conflict_tab.py   #   ConflictTab：SVN 冲突分析页签
+├── gui_revision_tab.py   #   RevisionTab：同分支版本对比页签
+├── gui_branch_tab.py     #   BranchTab：跨分支对比页签
+├── svn_revision_helper.py # svn 命令薄封装（info/log/cat/list_branches），版本/分支对比共用
 ├── pfb_diff.py           # CLI 入口
 ├── svn_conflict_helper.py # SVN 冲突分析（CLI + GUI 共用的分析与概览报告）
 ├── compile.bat           # PyInstaller 打包脚本
@@ -116,14 +123,18 @@ pfb_diff/
 ├── matcher.py            # 节点匹配引擎
 ├── report_html_tree.py   # 树形 HTML 报告生成器
 ├── report_json.py        # JSON 报告生成器
-├── tests/                # 单元测试（含 test_gui_smoke.py：无头 GUI 冒烟自检）
+├── tests/                # 单元测试（test_gui_smoke.py 无头 GUI 冒烟、test_svn_revision.py svn 集成）
 └── reports/              # 自动生成的报告目录（按功能分子目录）
     ├── compare/          #   两方对比报告
-    └── svn_conflict/     #   SVN 冲突分析报告
+    ├── svn_conflict/     #   SVN 冲突分析报告
+    ├── revision/         #   同分支版本对比报告
+    └── branch/           #   跨分支对比报告
 ```
 
 ## 范围
 
 不做三方 diff、SVN 冲突自动识别、自动合并、资源 uuid 到路径映射。脚本字段只做浅层 diff，并跳过 Cocos 内部字段和 `__id__` 引用。
+
+「版本对比 / 分支对比」会主动调用系统 `svn` 命令行（其余功能均为离线文件对比）：要求已安装 svn 客户端、被比较的 `.prefab` 在 SVN 工作副本内；不内置鉴权界面（沿用系统缓存凭据），不直接对非 WC 的纯仓库 URL 拖放操作。
 
 事件回调对比覆盖 Button / Toggle / ToggleContainer / Slider / ScrollView / PageView / EditBox（见 `config.py` 的 `EVENT_FIELDS`）；事件 target 会解析成节点路径再对比，不受 `__id__` 布局偏移影响；编辑器中未绑定函数的空事件槽不参与对比。
