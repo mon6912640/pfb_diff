@@ -45,17 +45,11 @@ CONFLICT_REPORTS_DIR = os.path.join(REPORTS_DIR, "svn_conflict")  # 冲突分析
 # 冲突分析的子报告（ours/theirs/交叉对比），最近报告列表里隐藏，从概览页内链接进入
 _SUB_REPORT_RE = re.compile(r"_(ours|theirs|ours_vs_theirs)_\d{8}_\d{6}\.html$")
 
-# ── 配色 ──
-BG = "#0b1120"
-CARD_BG = "#111827"
-BORDER = "#334155"
-TEXT = "#e2e8f0"
-TEXT_DIM = "#94a3b8"
-TEXT_DARK = "#64748b"
-ACCENT = "#3b82f6"
-RED = "#ef4444"
-GREEN = "#22c55e"
-YELLOW = "#f59e0b"
+# ── 配色（见 gui_theme.py）──
+from gui_theme import (
+    BG, CARD_BG, BORDER, TEXT, TEXT_DIM, TEXT_DARK, ACCENT, RED, GREEN, YELLOW,
+    PRIMARY_BTN_BG, TAB_SELECTED_BG,
+)
 
 
 class AppState:
@@ -637,7 +631,7 @@ def _build_compare_tab(parent):
     action_bar.pack(fill="x", padx=16, pady=8)
     gen_btn = tk.Button(action_bar, text="请先拖入两个 prefab", bg=BORDER, fg=TEXT_DIM, bd=0, padx=20, pady=6, cursor="hand2", state="disabled", command=do_generate, font=("Microsoft YaHei", 10, "bold"))
     gen_btn.pack(side="left")
-    view_btn = tk.Button(action_bar, text="👁 查看树形报告", bg="#1e40af", fg=TEXT, bd=0, padx=16, pady=6, cursor="hand2", state="disabled", font=("Microsoft YaHei", 10, "bold"))
+    view_btn = tk.Button(action_bar, text="👁 查看树形报告", bg=PRIMARY_BTN_BG, fg=TEXT, bd=0, padx=16, pady=6, cursor="hand2", state="disabled", font=("Microsoft YaHei", 10, "bold"))
     view_btn.pack(side="left", padx=8)
 
 
@@ -666,7 +660,7 @@ def _build_conflict_tab(parent):
     head_bar.pack(fill="x", padx=16, pady=(8, 0))
     conflict_hint_lbl = tk.Label(head_bar, text="尚未加载冲突文件", bg=BG, fg=TEXT_DIM, font=("Microsoft YaHei", 9))
     conflict_hint_lbl.pack(side="left")
-    analyze_all_btn = tk.Button(head_bar, text="🔍 全部分析", bg="#1e40af", fg=TEXT, bd=0, padx=14, pady=4,
+    analyze_all_btn = tk.Button(head_bar, text="🔍 全部分析", bg=PRIMARY_BTN_BG, fg=TEXT, bd=0, padx=14, pady=4,
                                 cursor="hand2", state="disabled", command=analyze_all_conflicts,
                                 font=("Microsoft YaHei", 9, "bold"))
     analyze_all_btn.pack(side="right")
@@ -772,7 +766,7 @@ def build_app():
     style.configure("TNotebook.Tab", background=CARD_BG, foreground=TEXT_DIM,
                     padding=[16, 7], font=("Microsoft YaHei", 10))
     style.map("TNotebook.Tab",
-              background=[("selected", "#1e3a5f")],
+              background=[("selected", TAB_SELECTED_BG)],
               foreground=[("selected", TEXT)])
     style.configure("Vertical.TScrollbar", background=BORDER, troughcolor=CARD_BG, borderwidth=0)
 
