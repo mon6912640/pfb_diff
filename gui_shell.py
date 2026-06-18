@@ -32,6 +32,8 @@ _PROJECT_ROOT = _get_project_root()
 REPORTS_DIR = os.path.join(_PROJECT_ROOT, "reports")
 COMPARE_REPORTS_DIR = os.path.join(REPORTS_DIR, "compare")        # 两方对比报告
 CONFLICT_REPORTS_DIR = os.path.join(REPORTS_DIR, "svn_conflict")  # 冲突分析报告
+REVISION_REPORTS_DIR = os.path.join(REPORTS_DIR, "revision")      # 同分支版本对比报告
+BRANCH_REPORTS_DIR = os.path.join(REPORTS_DIR, "branch")          # 跨分支对比报告
 
 # 冲突分析的子报告（ours/theirs/交叉对比），最近报告列表里隐藏，从概览页内链接进入
 _SUB_REPORT_RE = re.compile(r"_(ours|theirs|ours_vs_theirs)_\d{8}_\d{6}\.html$")
@@ -197,14 +199,19 @@ class AppShell:
 
         self.recent_canvas.yview_moveto(0)  # 重载后回到列表顶部
 
+    # 页签 index → (报告目录, 列表标题)。新增页签时在此登记一行即可。
+    TAB_REPORTS = [
+        (COMPARE_REPORTS_DIR, "📁 最近生成的报告（两方对比）"),
+        (CONFLICT_REPORTS_DIR, "📁 最近生成的报告（冲突分析）"),
+        (REVISION_REPORTS_DIR, "📁 最近生成的报告（版本对比）"),
+        (BRANCH_REPORTS_DIR, "📁 最近生成的报告（分支对比）"),
+    ]
+
     # ── 页签切换 ──
     def on_tab_changed(self, event) -> None:
         """切换页签时，最近报告列表切换到对应目录"""
         idx = event.widget.index(event.widget.select())
-        if idx == 1:
-            self.current_reports_dir = CONFLICT_REPORTS_DIR
-            self.recent_title_lbl.config(text="📁 最近生成的报告（冲突分析）")
-        else:
-            self.current_reports_dir = COMPARE_REPORTS_DIR
-            self.recent_title_lbl.config(text="📁 最近生成的报告（两方对比）")
+        directory, title = self.TAB_REPORTS[idx] if idx < len(self.TAB_REPORTS) else self.TAB_REPORTS[0]
+        self.current_reports_dir = directory
+        self.recent_title_lbl.config(text=title)
         self.load_recent_reports()
