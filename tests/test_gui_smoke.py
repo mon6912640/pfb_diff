@@ -17,7 +17,11 @@ AttributeError 暴露，而不必手动开窗口逐个点。
 """
 
 import os
+import pathlib
+import shutil
+import subprocess
 import sys
+import tempfile
 import time
 import unittest
 
@@ -31,9 +35,11 @@ import gui
 import gui_shell
 import gui_compare_tab
 import gui_conflict_tab
+import gui_revision_tab
+import svn_revision_helper as svnh
 
-# 弹窗发生在各页签模块里，需在这两个模块上 stub messagebox
-_BOX_MODULES = (gui_compare_tab, gui_conflict_tab)
+# 弹窗发生在各页签模块里，需在这些模块上 stub messagebox
+_BOX_MODULES = (gui_compare_tab, gui_conflict_tab, gui_revision_tab)
 
 
 class _DropEvent:
@@ -76,7 +82,9 @@ def _wait_until(root, predicate, timeout=60.0):
     return result["ok"]
 
 
-class GuiSmokeTest(unittest.TestCase):
+class _GuiTestBase(unittest.TestCase):
+    """公共 setUp/tearDown：stub 弹窗、无头建窗、收尾后台线程、取消挂起 after。"""
+
     def setUp(self):
         # messagebox.* 是阻塞式模态弹窗，无头测试若真弹出会一直等人点 OK。
         # 各页签模块各自 import 了 messagebox，需逐个 stub，让回调提示全部静默。
@@ -112,12 +120,15 @@ class GuiSmokeTest(unittest.TestCase):
         except Exception:
             pass
 
+
+class GuiSmokeTest(_GuiTestBase):
     # ── 框架 ──
-    def test_build_app_constructs_both_tabs(self):
-        # build_app 跑通即说明两个页签 + 框架控件全部接线成功
-        self.assertEqual(len(gui.notebook.tabs()), 2)
+    def test_build_app_constructs_tabs(self):
+        # build_app 跑通即说明各页签 + 框架控件全部接线成功
+        self.assertEqual(len(gui.notebook.tabs()), 3)
         self.assertIsNotNone(gui.compare_tab.gen_btn)
         self.assertIsNotNone(gui.conflict_tab.analyze_all_btn)
+        self.assertIsNotNone(gui.revision_tab.compare_btn)
 
     # ── 两方对比 ──
     def test_drop_enables_generate_and_writes_report(self):
@@ -173,6 +184,66 @@ def _count_html(directory):
     if not os.path.isdir(directory):
         return 0
     return len([f for f in os.listdir(directory) if f.endswith(".html")])
+
+
+def _svn(args, cwd=None):
+    subprocess.run(["svn", "--non-interactive"] + args, cwd=cwd, check=True, capture_output=True)
+
+
+@unittest.skipUnless(svnh.svn_available(), "svn 命令不可用，跳过 SVN 页签冒烟")
+class SvnTabSmokeTest(_GuiTestBase):
+    """版本对比 / 分支对比页签：建本地临时 svn 仓库驱动真实流程。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="pfbdiff_guisvn_")
+        repo = os.path.join(cls.tmp, "repo")
+        wc = os.path.join(cls.tmp, "wc")
+        subprocess.run(["svnadmin", "create", repo], check=True, capture_output=True)
+        cls.repo_url = pathlib.Path(repo).as_uri()
+        _svn(["checkout", cls.repo_url, wc])
+
+        with open(os.path.join(FIXTURES, "comprehensive_before.prefab"), "rb") as f:
+            before = f.read()
+        with open(os.path.join(FIXTURES, "comprehensive_after.prefab"), "rb") as f:
+            cls.after = f.read()
+
+        os.makedirs(os.path.join(wc, "trunk"))
+        cls.trunk_file = os.path.join(wc, "trunk", "foo.prefab")
+        with open(cls.trunk_file, "wb") as fp:
+            fp.write(before)
+        os.makedirs(os.path.join(wc, "branches"))
+        _svn(["add", "trunk", "branches"], cwd=wc)
+        _svn(["commit", "-m", "r1"], cwd=wc)
+        _svn(["update"], cwd=wc)
+        _svn(["copy", "trunk", os.path.join("branches", "exp")], cwd=wc)
+        with open(os.path.join(wc, "branches", "exp", "foo.prefab"), "wb") as fp:
+            fp.write(cls.after)
+        _svn(["commit", "-m", "r2 branch"], cwd=wc)
+        _svn(["update"], cwd=wc)
+        cls.repo_root = svnh.info(cls.trunk_file)["repo_root"]
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_revision_tab_compare_writes_report(self):
+        tab = gui.revision_tab
+        # 工作副本里把 trunk 文件改成 after（未提交），制造 r1 ↔ 工作副本 的差异
+        with open(self.trunk_file, "wb") as fp:
+            fp.write(self.after)
+        tab.on_drop(_DropEvent(self.trunk_file))
+        # 左=最旧的 revision（r1=before），右=工作副本（after）
+        tab.left_cb.current(len(tab.specs) - 1)
+        tab.right_cb.current(0)
+
+        before_n = _count_html(gui_shell.REVISION_REPORTS_DIR)
+        tab.do_compare()
+        ok = _wait_until(self.root, lambda: not tab.busy)
+        self.assertTrue(ok, "版本对比应结束并复位 busy")
+        self.assertEqual(_count_html(gui_shell.REVISION_REPORTS_DIR), before_n + 1)
+        # 还原工作副本，避免影响别的用例
+        _svn(["revert", self.trunk_file])
 
 
 if __name__ == "__main__":

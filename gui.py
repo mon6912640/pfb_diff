@@ -32,11 +32,13 @@ from gui_shell import AppShell, resource_path
 from gui_theme import BG, CARD_BG, BORDER, TEXT, TEXT_DIM, TAB_SELECTED_BG
 from gui_compare_tab import CompareTab
 from gui_conflict_tab import ConflictTab
+from gui_revision_tab import RevisionTab
 
 # 框架与各页签实例，均在 build_app() 中创建
 shell: AppShell = None
 compare_tab: CompareTab = None
 conflict_tab: ConflictTab = None
+revision_tab: RevisionTab = None
 
 
 # ═══════════════════════════════════════
@@ -49,7 +51,7 @@ def build_app():
     返回根窗口。拆出此函数是为了让无头测试能构建完整 UI 并驱动回调，
     而不阻塞在 mainloop 上；run_gui 只是它加一句 mainloop 的薄封装。
     """
-    global root, shell, notebook, compare_tab, conflict_tab
+    global root, shell, notebook, compare_tab, conflict_tab, revision_tab
 
     root = TkinterDnD.Tk()
     shell = AppShell(root)
@@ -85,11 +87,14 @@ def build_app():
 
     tab_compare = tk.Frame(notebook, bg=BG)
     tab_conflict = tk.Frame(notebook, bg=BG)
+    tab_revision = tk.Frame(notebook, bg=BG)
     notebook.add(tab_compare, text="  📊 两方对比  ")
     notebook.add(tab_conflict, text="  🌲 SVN 冲突分析  ")
+    notebook.add(tab_revision, text="  📜 版本对比  ")
 
     compare_tab = CompareTab(shell, tab_compare)
     conflict_tab = ConflictTab(shell, tab_conflict)
+    revision_tab = RevisionTab(shell, tab_revision)
     notebook.bind("<<NotebookTabChanged>>", shell.on_tab_changed)
 
     # 状态栏 + 最近报告列表（两个页签共用），均由 AppShell 持有
