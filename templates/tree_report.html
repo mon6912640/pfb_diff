@@ -386,7 +386,11 @@ a { color: #60a5fa; }
         <tr><td><span class="score-tag" style="background:#a855f7">重命名</span></td><td>节点名字变了</td></tr>
         <tr><td><span class="score-tag" style="background:#6366f1">移动+重命名</span></td><td>同时移动和重命名</td></tr>
         <tr><td><span class="score-tag" style="background:#60a5fa">子节点顺序</span></td><td>子节点的排列顺序变了</td></tr>
-        <tr><td><span class="score-tag" style="background:#f59e0b">字段</span></td><td>属性字段值变化（位置、颜色、文本等）</td></tr>
+        <tr><td><span class="score-tag" style="background:#fb7185">👁 显隐</span></td><td>节点显示 / 隐藏（激活状态）变化</td></tr>
+        <tr><td><span class="score-tag" style="background:#eab308">📍位置</span></td><td>节点位置（x/y/z）变化</td></tr>
+        <tr><td><span class="score-tag" style="background:#14b8a6">📐尺寸</span></td><td>缩放 / 内容尺寸 / 锚点变化</td></tr>
+        <tr><td><span class="score-tag" style="background:#d946ef">🎨外观</span></td><td>颜色 / 透明度变化</td></tr>
+        <tr><td><span class="score-tag" style="background:#f59e0b">字段</span></td><td>脚本 / 组件的属性字段值变化（不含上述节点视觉属性）</td></tr>
         <tr><td><span class="score-tag" style="background:#06b6d4">资源</span></td><td>引用的图片、动画等资源变了</td></tr>
         <tr><td><span class="score-tag" style="background:#ec4899">事件</span></td><td>按钮点击事件等交互绑定变了</td></tr>
         <tr><td><span class="score-tag" style="background:#f97316">组件</span></td><td>组件增删、顺序变化或属性修改</td></tr>
@@ -675,6 +679,19 @@ function _locateAlternative(internalPath) {
     }
 }
 
+// node.props.* 字段按语义细分的明细标签，与 report_html_tree.py 的 _FIELD_GROUPS 保持一致
+function _fieldGroupLabel(field) {
+    if (!field || field.indexOf('node.props.') !== 0) return '';
+    const key = field.slice('node.props.'.length);
+    const map = {
+        '_active': '👁 显隐变化',
+        '_position': '📍位置变化',
+        '_scale': '📐尺寸变化', '_contentSize': '📐尺寸变化', '_anchorPoint': '📐尺寸变化',
+        '_color': '🎨外观变化', '_opacity': '🎨外观变化'
+    };
+    return map[key] || '';
+}
+
 function _typeText(c) {
     const map = {
         'added':'新增节点', 'deleted':'删除节点', 'moved':'节点移动',
@@ -684,7 +701,7 @@ function _typeText(c) {
         'ambiguous':'多候选匹配'
     };
     if (c.category === 'node') return map[c.type] || c.type;
-    if (c.category === 'field') return '字段变化';
+    if (c.category === 'field') return _fieldGroupLabel(c.field) || '字段变化';
     if (c.category === 'resource') return '资源引用变化';
     if (c.category === 'event') return '事件绑定变化';
     if (c.category === 'component') return '组件变化';

@@ -38,6 +38,38 @@ _CHANGE_PRIORITY = [
     ("resource", "changed"), ("field", "changed"), ("node", "child_order_changed"),
 ]
 
+# 节点自身属性（node.props.*）按语义细分成几组，在报告里用独立标签区分，
+# 而不是和脚本/组件字段混在一个笼统的「字段」徽章里。边界即此映射表，
+# 要新增/调整分组只改这里一处（对应 config.NODE_PROP_FIELDS）。
+_FIELD_GROUPS: Dict[str, Tuple[str, str, str]] = {
+    # group key -> (label, color, tip)
+    "active": ("👁 显隐", "#fb7185", "节点显示 / 隐藏（激活状态）变化"),
+    "position": ("📍位置", "#eab308", "节点位置（x/y/z）变化"),
+    "size": ("📐尺寸", "#14b8a6", "缩放 / 内容尺寸 / 锚点变化"),
+    "appearance": ("🎨外观", "#d946ef", "颜色 / 透明度变化"),
+}
+
+_NODE_PROP_TO_GROUP: Dict[str, str] = {
+    "_active": "active",
+    "_position": "position",
+    "_scale": "size",
+    "_contentSize": "size",
+    "_anchorPoint": "size",
+    "_color": "appearance",
+    "_opacity": "appearance",
+}
+
+
+def _field_group(p_field: Optional[str]) -> Optional[Tuple[str, str, str]]:
+    """把一条字段变化映射到细分分组；非 node.props.* 或未收录的键返回 None（走通用「字段」）。"""
+    if not p_field:
+        return None
+    t_prefix = "node.props."
+    if not p_field.startswith(t_prefix):
+        return None
+    t_group = _NODE_PROP_TO_GROUP.get(p_field[len(t_prefix):])
+    return _FIELD_GROUPS.get(t_group) if t_group else None
+
 
 def write_html_report(p_result: DiffResult, p_file_path: str) -> None:
     t_before_doc = parse_prefab(p_result.before_file)
@@ -218,6 +250,16 @@ def _analyze_changes(p_changes: List[Change]) -> Tuple[str, List[Dict[str, str]]
     t_badges = []
     t_seen = set()
     for c in t_sorted:
+        if c.category == "field" and c.type == "changed":
+            t_group = _field_group(c.field)
+            if t_group:
+                t_gkey = ("field-group", t_group[0])
+                if t_gkey in t_seen:
+                    continue
+                t_seen.add(t_gkey)
+                t_badges.append({"label": t_group[0], "color": t_group[1], "css": "chg-field"})
+                continue
+            # 未细分的字段（脚本/组件字段、_active 等）走通用「字段」徽章
         t_key = (c.category, c.type)
         if t_key in t_seen:
             continue
@@ -287,6 +329,10 @@ def _render_legend() -> str:
             continue
         t_items.append(
             '<span class="legend-item" data-tip="%s"><span class="legend-dot" style="background:%s"></span>%s</span>' % (_e(t_meta[3]), t_meta[2], _e(t_meta[1]))
+        )
+    for t_label, t_color, t_tip in _FIELD_GROUPS.values():
+        t_items.append(
+            '<span class="legend-item" data-tip="%s"><span class="legend-dot" style="background:%s"></span>%s</span>' % (_e(t_tip), t_color, _e(t_label))
         )
     return "".join(t_items)
 
