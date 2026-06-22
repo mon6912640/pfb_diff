@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""PfbDiff GUI — 「🌿 分支对比」页签（同一文件在不同分支上的版本）。
+"""PfbDiff GUI — 「🌿 分支对比」页签。
 
-拖入 SVN 工作副本内的 .prefab（= 你当前分支的版本），再指定对面分支上同一
-文件的 URL，对比两者。对面 URL 以「用户给/确认的完整 URL」为准——自动列举
-分支只是便利（仓库布局不统一时仍可手动粘贴），与具体布局无关、永远可用。
+左右两侧各自拖入一个 .prefab（可来自不同 SVN 分支 / 不同路径），分别列出
+各自的 SVN 提交历史，各选一个端点（工作副本或某个 revision）进行对比。
 
 取数走 svn_revision_helper（后台线程），对比与报告复用 diff_engine /
 report_html_tree，UI 框架复用 AppShell。
@@ -15,12 +14,13 @@ import threading
 import time
 
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox
 
 from tkinterdnd2 import DND_FILES
 
 import svn_revision_helper as svnh
 from diff_engine import diff_prefabs
+from prefab_parser import parse_prefab
 from report_html_tree import write_html_report as write_tree_report
 from report_json import write_json_report
 
@@ -30,119 +30,261 @@ from gui_theme import (
 )
 
 
+def _parse_info(file_path: str) -> dict:
+    try:
+        doc = parse_prefab(file_path)
+        return {"ok": True, "node_count": len(doc.nodes)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# 「工作副本」端点的占位（不 cat，直接用 WC 文件本身）
+_WORKING = ("working", None)
+
+
 class BranchTab:
     def __init__(self, shell: AppShell, parent: tk.Misc):
         self.shell = shell
-        self.file = None       # 当前分支（工作副本）里的文件
-        self.meta = None       # svn info 结果
         self.busy = False
+
+        # 左侧端点
+        self.left_file = None
+        self.left_meta = None
+        self.left_entries: list = []
+        self.left_specs: list = []
+
+        # 右侧端点
+        self.right_file = None
+        self.right_meta = None
+        self.right_entries: list = []
+        self.right_specs: list = []
+
         self._build(parent)
 
-    # ── 加载文件 ──
-    def on_drop(self, event):
-        self._load(strip_path(event.data))
+    # ── 左侧加载 ──
+    def on_drop_left(self, event):
+        self._load_left(strip_path(event.data))
 
-    def browse(self):
+    def browse_left(self):
         path = filedialog.askopenfilename(filetypes=[("Prefab files", "*.prefab")])
         if path:
-            self._load(path)
+            self._load_left(path)
 
-    def _load(self, path: str):
+    def _load_left(self, path: str):
+        if not self._validate(path):
+            return
+        meta, entries = self._svn_info_and_log(path)
+        if meta is None:
+            return
+        self.left_file = path
+        self.left_meta = meta
+        self.left_entries = entries
+        self.left_specs = [_WORKING] + [("rev", e["rev"]) for e in entries]
+        self.left_options = ["工作副本（含未提交改动）"] + [
+            f"r{e['rev']}  {e['date']}  {e['msg'][:30]}" for e in entries
+        ]
+        self.left_cb.config(values=self.left_options)
+        self.left_cb.current(1 if len(self.left_options) > 1 else 0)
+        self._update_left_ui()
+        self._set_side_controls(True, "left")
+        self._update_meta_labels()
+        self._check_ready()
+
+    def _clear_left(self):
+        self.left_file = None
+        self.left_meta = None
+        self.left_entries = []
+        self.left_specs = []
+        self.left_options = []
+        self.left_cb.config(values=[])
+        self._update_left_ui()
+        self._set_side_controls(False, "left")
+        self._update_meta_labels()
+        self._check_ready()
+
+    # ── 右侧加载 ──
+    def on_drop_right(self, event):
+        self._load_right(strip_path(event.data))
+
+    def browse_right(self):
+        path = filedialog.askopenfilename(filetypes=[("Prefab files", "*.prefab")])
+        if path:
+            self._load_right(path)
+
+    def _load_right(self, path: str):
+        if not self._validate(path):
+            return
+        meta, entries = self._svn_info_and_log(path)
+        if meta is None:
+            return
+        self.right_file = path
+        self.right_meta = meta
+        self.right_entries = entries
+        self.right_specs = [_WORKING] + [("rev", e["rev"]) for e in entries]
+        self.right_options = ["工作副本（含未提交改动）"] + [
+            f"r{e['rev']}  {e['date']}  {e['msg'][:30]}" for e in entries
+        ]
+        self.right_cb.config(values=self.right_options)
+        self.right_cb.current(1 if len(self.right_options) > 1 else 0)
+        self._update_right_ui()
+        self._set_side_controls(True, "right")
+        self._update_meta_labels()
+        self._check_ready()
+
+    def _clear_right(self):
+        self.right_file = None
+        self.right_meta = None
+        self.right_entries = []
+        self.right_specs = []
+        self.right_options = []
+        self.right_cb.config(values=[])
+        self._update_right_ui()
+        self._set_side_controls(False, "right")
+        self._update_meta_labels()
+        self._check_ready()
+
+    # ── 公共辅助 ──
+    def _validate(self, path: str) -> bool:
         if not path.lower().endswith(".prefab"):
             messagebox.showwarning("格式错误", f"请选择 .prefab 文件\n当前: {path}")
-            return
+            return False
         if not svnh.svn_available():
             messagebox.showerror("缺少 svn", "未找到 svn 命令，请先安装 SVN 命令行客户端并加入 PATH")
-            return
+            return False
+        return True
+
+    def _svn_info_and_log(self, path: str):
         try:
-            self.meta = svnh.info(path)
+            meta = svnh.info(path)
+            entries = svnh.log(path)
+            return meta, entries
         except svnh.SvnError as e:
             messagebox.showerror("无法读取 svn 信息", f"{e}\n\n该文件需位于 SVN 工作副本内。")
-            return
+            return None, []
 
-        self.file = path
-        self.info_lbl.config(text=f"当前：{os.path.basename(path)} @ r{self.meta['rev']}  ·  {self.meta['url']}")
-        # 目标 URL 预填当前文件 URL，供用户改成对面分支
-        self.target_var.set(self.meta["url"])
-        self.drop_frame.pack_forget()
-        self.body_frame.pack(fill="x", padx=8, pady=8)
-        self.compare_btn.config(state="normal")
-
-    # ── 列分支（便利，失败不致命）──
-    def list_branches(self):
-        if not self.meta:
-            return
-        names = svnh.list_branches(self.meta["repo_root"])
-        if not names:
-            messagebox.showinfo("未发现标准 branches",
-                                "未在仓库根下发现 branches 目录。\n请直接把对面分支上该文件的完整 URL 粘到目标框。")
-            return
-        self._open_branch_chooser(names)
-
-    def _apply_branch(self, name: str):
-        """best-effort：把当前文件的「分支内路径」拼到 branches/<name>/ 下，填入目标框。
-
-        用户可在目标框里继续修正——最终以框里的 URL 为准。
-        """
-        rel = self.meta["rel_path"]              # 如 trunk/Assets/foo.prefab 或 branches/x/Assets/foo.prefab
-        parts = rel.split("/")
-        if parts and parts[0] == "branches" and len(parts) >= 2:
-            inbranch = "/".join(parts[2:])       # 去掉 branches/<旧分支>
-        elif parts and parts[0] == "trunk":
-            inbranch = "/".join(parts[1:])        # 去掉 trunk
+    def _update_left_ui(self):
+        if self.left_file:
+            info = _parse_info(self.left_file)
+            self.left_name_lbl.config(text=os.path.basename(self.left_file))
+            self.left_url_lbl.config(text=f"r{self.left_meta['rev']}  ·  {self.left_meta['url']}")
+            if info["ok"]:
+                self.left_node_lbl.config(text=f"📄 {info['node_count']} 节点")
+            else:
+                self.left_node_lbl.config(text=f"⚠️ {info['error']}")
+            self.left_drop_frame.pack_forget()
+            self.left_info_frame.pack(fill="both", expand=True, padx=8, pady=8)
         else:
-            inbranch = rel                        # 非标准布局：原样拼，交给用户改
-        target = self.meta["repo_root"].rstrip("/") + "/branches/" + name + "/" + inbranch
-        self.target_var.set(target)
+            self.left_name_lbl.config(text="")
+            self.left_url_lbl.config(text="")
+            self.left_node_lbl.config(text="")
+            self.left_info_frame.pack_forget()
+            self.left_drop_frame.pack(fill="both", expand=True, padx=8, pady=8)
 
-    def _open_branch_chooser(self, names):
-        top = tk.Toplevel(self.shell.root, bg=CARD_BG)
-        top.title("选择目标分支")
-        top.geometry("360x320")
-        tk.Label(top, text="双击选择分支（之后可在目标框微调）", bg=CARD_BG, fg=TEXT_DIM,
-                 font=(FONT_FAMILY, 9)).pack(anchor="w", padx=8, pady=6)
-        lb = tk.Listbox(top, bg=BG, fg=TEXT, highlightthickness=0, bd=0)
-        for n in names:
-            lb.insert("end", n)
-        lb.pack(fill="both", expand=True, padx=8, pady=8)
+    def _update_right_ui(self):
+        if self.right_file:
+            info = _parse_info(self.right_file)
+            self.right_name_lbl.config(text=os.path.basename(self.right_file))
+            self.right_url_lbl.config(text=f"r{self.right_meta['rev']}  ·  {self.right_meta['url']}")
+            if info["ok"]:
+                self.right_node_lbl.config(text=f"📄 {info['node_count']} 节点")
+            else:
+                self.right_node_lbl.config(text=f"⚠️ {info['error']}")
+            self.right_drop_frame.pack_forget()
+            self.right_info_frame.pack(fill="both", expand=True, padx=8, pady=8)
+        else:
+            self.right_name_lbl.config(text="")
+            self.right_url_lbl.config(text="")
+            self.right_node_lbl.config(text="")
+            self.right_info_frame.pack_forget()
+            self.right_drop_frame.pack(fill="both", expand=True, padx=8, pady=8)
 
-        def _pick(_event=None):
-            sel = lb.curselection()
-            if sel:
-                self._apply_branch(names[sel[0]])
-                top.destroy()
+    # ── 版本选择 ──
+    def _on_version_changed(self, _event=None):
+        self._update_meta_labels()
+        self._check_ready()
 
-        lb.bind("<Double-Button-1>", _pick)
-        tk.Button(top, text="选择", bg=PRIMARY_BTN_BG, fg=TEXT, bd=0, padx=14, pady=4,
-                  cursor="hand2", command=_pick, font=(FONT_FAMILY, 9, "bold")).pack(pady=(0, 8))
+    def _update_meta_labels(self):
+        self._render_meta(self.left_cb, self.left_specs, self.left_entries, self.left_meta_lbl)
+        self._render_meta(self.right_cb, self.right_specs, self.right_entries, self.right_meta_lbl)
+
+    def _render_meta(self, cb: ttk.Combobox, specs: list, entries: list, lbl: tk.Label):
+        idx = cb.current()
+        if idx < 0 or idx >= len(specs):
+            lbl.config(text="", fg=TEXT_DARK)
+            return
+        kind, rev = specs[idx]
+        if kind == "working":
+            lbl.config(text="当前工作副本（含未提交改动）", fg=ACCENT)
+        else:
+            entry = entries[idx - 1]
+            msg = entry["msg"].replace("\n", " ").replace("\r", " ").strip()
+            if len(msg) > 120:
+                msg = msg[:120] + "..."
+            lbl.config(
+                text=f"{entry['date']}  ·  {entry.get('author', 'unknown')}  ·  {msg}",
+                fg=TEXT_DIM,
+            )
+
+    def _swap_sides(self):
+        # 交换文件与历史记录
+        self.left_file, self.right_file = self.right_file, self.left_file
+        self.left_meta, self.right_meta = self.right_meta, self.left_meta
+        self.left_entries, self.right_entries = self.right_entries, self.left_entries
+        self.left_specs, self.right_specs = self.right_specs, self.left_specs
+        self.left_options, self.right_options = self.right_options, self.left_options
+
+        # 交换下拉框内容与当前选中项
+        li, ri = self.left_cb.current(), self.right_cb.current()
+        self.left_cb.config(values=self.left_options)
+        self.right_cb.config(values=self.right_options)
+        self.left_cb.current(ri if ri >= 0 else 0)
+        self.right_cb.current(li if li >= 0 else 0)
+
+        self._update_left_ui()
+        self._update_right_ui()
+        self._update_meta_labels()
+        self._check_ready()
 
     # ── 对比 ──
     def do_compare(self):
-        if self.busy or not self.file:
+        if self.busy or not self.left_file or not self.right_file:
             return
-        target = self.target_var.get().strip()
-        if not target:
-            messagebox.showinfo("提示", "请填写对面分支上该文件的 URL")
+        li, ri = self.left_cb.current(), self.right_cb.current()
+        if li < 0 or ri < 0:
             return
-        rev = (self.rev_var.get().strip() or "HEAD")
+        left_spec, right_spec = self.left_specs[li], self.right_specs[ri]
+        if left_spec == right_spec and self.left_file == self.right_file:
+            messagebox.showinfo("提示", "两个端点相同，无需对比")
+            return
         self.busy = True
-        self.compare_btn.config(state="disabled", text="⏳ 正在取分支版本并对比...")
-        threading.Thread(target=self._worker, args=(target, rev), daemon=True).start()
+        self._set_controls(False)
+        self.compare_btn.config(text="⏳ 正在取版本并对比...")
+        threading.Thread(target=self._worker, args=(left_spec, right_spec), daemon=True).start()
 
-    def _worker(self, target_url: str, rev: str):
+    def _resolve(self, spec, file_path: str, workdir: str, side: str) -> tuple:
+        """把端点解析成 (文件路径, 标签)。工作副本端直接用 WC 文件，不 cat。"""
+        kind, rev = spec
+        if kind == "working":
+            return file_path, "working"
+        dest = os.path.join(workdir, f"{side}.prefab")
+        svnh.cat(file_path, rev, dest)
+        return dest, f"r{rev}"
+
+    def _worker(self, left_spec, right_spec):
         root = self.shell.root
         work = svnh.make_workdir()
         try:
-            # 左 = 当前工作副本文件本身；右 = 目标分支 URL @ rev
-            right = svnh.cat(target_url, rev, os.path.join(work, "right.prefab"))
-            result = diff_prefabs(self.file, right)
-            base = os.path.basename(self.file)
-            result.before_path = f"{base}@工作副本"
-            result.after_path = f"{target_url}@{rev}"
+            left_path, left_label = self._resolve(left_spec, self.left_file, work, "left")
+            right_path, right_label = self._resolve(right_spec, self.right_file, work, "right")
+            result = diff_prefabs(left_path, right_path)
+            left_base = os.path.basename(self.left_file)
+            right_base = os.path.basename(self.right_file)
+            result.before_path = f"{left_base}@{left_label}"
+            result.after_path = f"{right_base}@{right_label}"
 
             ensure_dir(BRANCH_REPORTS_DIR)
             stamp = time.strftime("%Y%m%d_%H%M%S")
-            name = f"{safe_name(base)}_branch_{stamp}"
+            name = f"{safe_name(left_base)}_{left_label}__vs__{safe_name(right_base)}_{right_label}_{stamp}"
             html = os.path.join(BRANCH_REPORTS_DIR, name + ".html")
             write_tree_report(result, html)
             write_json_report(result, os.path.join(BRANCH_REPORTS_DIR, name + ".json"))
@@ -154,70 +296,157 @@ class BranchTab:
 
     def _on_done(self, html: str):
         self.busy = False
-        self.compare_btn.config(state="normal", text="🔍 生成分支对比报告")
-        self.shell.set_status(f"✅ 已完成: {os.path.basename(html)}")
+        self._set_controls(True)
+        self._check_ready()
         self.view_btn.config(state="normal", command=lambda: self.shell.open_report(html))
+        self.shell.set_status(f"✅ 已完成: {os.path.basename(html)}")
         self.shell.load_recent_reports()
         self.shell.open_report(html)
 
     def _on_fail(self, error: str):
         self.busy = False
-        self.compare_btn.config(state="normal", text="🔍 生成分支对比报告")
+        self._set_controls(True)
+        self._check_ready()
         self.shell.set_status("❌ 对比失败")
         messagebox.showerror("对比失败", error)
 
+    def _set_controls(self, enabled: bool):
+        self._set_side_controls(enabled, "left")
+        self._set_side_controls(enabled, "right")
+        self.swap_btn.config(state="normal" if (enabled and self.left_file and self.right_file) else "disabled")
+
+    def _set_side_controls(self, enabled: bool, side: str):
+        if side == "left":
+            self.left_cb.config(state="readonly" if enabled else "disabled")
+        else:
+            self.right_cb.config(state="readonly" if enabled else "disabled")
+
+    def _check_ready(self):
+        li, ri = self.left_cb.current(), self.right_cb.current()
+        same_file = self.left_file and self.right_file and self.left_file == self.right_file
+        same_spec = li >= 0 and ri >= 0 and self.left_specs[li] == self.right_specs[ri]
+        ready = bool(self.left_file and self.right_file and li >= 0 and ri >= 0 and not (same_file and same_spec))
+        if not self.busy:
+            self.compare_btn.config(
+                state="normal" if ready else "disabled",
+                text="🔍 生成分支对比报告" if ready else "请先拖入两个分支的 prefab 并选择版本",
+            )
+            self.swap_btn.config(
+                state="normal" if (self.left_file and self.right_file) else "disabled"
+            )
+
     # ── 构建 ──
     def _build(self, parent: tk.Misc):
-        self.target_var = tk.StringVar()
-        self.rev_var = tk.StringVar(value="HEAD")
+        drop_area = tk.Frame(parent, bg=BG)
+        drop_area.pack(fill="both", expand=True, padx=8, pady=8)
+        drop_area.grid_columnconfigure(0, weight=1, uniform="branch_cards")
+        drop_area.grid_columnconfigure(1, weight=1, uniform="branch_cards")
+        drop_area.grid_rowconfigure(0, weight=1)
 
-        card = tk.Frame(parent, bg=CARD_BG, highlightbackground=BORDER, highlightthickness=2)
-        card.pack(fill="x", padx=16, pady=(16, 8))
+        # ── 左侧卡片：分支 A ──
+        left_card = tk.Frame(drop_area, bg=CARD_BG, highlightbackground=BORDER, highlightthickness=2)
+        left_card.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
 
-        # 未加载文件时的拖放区
-        self.drop_frame = tk.Frame(card, bg=CARD_BG)
-        self.drop_frame.pack(fill="both", expand=True)
-        self.drop_frame.drop_target_register(DND_FILES)
-        self.drop_frame.dnd_bind("<<Drop>>", self.on_drop)
-        tk.Label(self.drop_frame, text="🌿 拖入 SVN 工作副本内的 .prefab（你当前分支的版本）",
-                 bg=CARD_BG, fg=TEXT_DIM, font=(FONT_FAMILY, 11)).pack(pady=(16, 0))
-        tk.Label(self.drop_frame, text="再指定对面分支上同一文件的 URL 进行对比",
-                 bg=CARD_BG, fg=TEXT_DARK, font=(FONT_FAMILY, 9)).pack()
-        tk.Button(self.drop_frame, text="📂 选择文件", bg=CARD_BG, fg=ACCENT, bd=0, cursor="hand2",
-                  command=self.browse, font=(FONT_FAMILY, 9)).pack(pady=(4, 16))
+        self.left_drop_frame = tk.Frame(left_card, bg=CARD_BG)
+        self.left_drop_frame.pack(fill="both", expand=True)
+        self.left_drop_frame.drop_target_register(DND_FILES)
+        self.left_drop_frame.dnd_bind("<<Drop>>", self.on_drop_left)
 
-        # 加载后的目标设置区
-        self.body_frame = tk.Frame(card, bg=CARD_BG)
-        self.info_lbl = tk.Label(self.body_frame, text="", bg=CARD_BG, fg=TEXT, font=(FONT_FAMILY, 9, "bold"))
-        self.info_lbl.pack(anchor="w", padx=8, pady=(8, 6))
+        tk.Label(self.left_drop_frame, text="🌿 分支 A（旧版本）", bg=CARD_BG, fg=TEXT_DIM,
+                 font=(FONT_FAMILY, 10, "bold")).pack(anchor="w", padx=8, pady=(8, 0))
+        tk.Label(self.left_drop_frame, text="拖入分支 A 的 .prefab", bg=CARD_BG, fg=TEXT_DIM,
+                 font=(FONT_FAMILY, 11)).pack(expand=True)
+        tk.Label(self.left_drop_frame, text="或点击选择文件", bg=CARD_BG, fg=TEXT_DARK,
+                 font=(FONT_FAMILY, 9)).pack()
+        tk.Button(self.left_drop_frame, text="📂 浏览...", bg=CARD_BG, fg=ACCENT, bd=0, cursor="hand2",
+                  command=self.browse_left, font=(FONT_FAMILY, 9)).pack(pady=8)
 
-        trow = tk.Frame(self.body_frame, bg=CARD_BG)
-        trow.pack(fill="x", padx=8, pady=(0, 4))
-        tk.Label(trow, text="对面 URL", bg=CARD_BG, fg=TEXT_DIM, font=(FONT_FAMILY, 9)).pack(side="left")
-        tk.Entry(trow, textvariable=self.target_var, bg=BG, fg=TEXT, insertbackground=TEXT,
-                 relief="flat", font=(FONT_FAMILY, 9)).pack(side="left", fill="x", expand=True, padx=8)
-        tk.Button(trow, text="📋 列出分支", bg=CARD_BG, fg=ACCENT, bd=0, cursor="hand2",
-                  command=self.list_branches, font=(FONT_FAMILY, 9)).pack(side="left")
+        self.left_info_frame = tk.Frame(left_card, bg=CARD_BG)
+        tk.Label(self.left_info_frame, text="🌿 分支 A（旧版本）", bg=CARD_BG, fg=TEXT_DIM,
+                 font=(FONT_FAMILY, 10, "bold")).pack(anchor="w", padx=8, pady=(8, 0))
+        self.left_name_lbl = tk.Label(self.left_info_frame, text="", bg=CARD_BG, fg=TEXT,
+                                      font=(FONT_FAMILY, 10, "bold"))
+        self.left_name_lbl.pack(anchor="w", padx=8, pady=(4, 0))
+        self.left_url_lbl = tk.Label(self.left_info_frame, text="", bg=CARD_BG, fg=TEXT_DARK,
+                                     font=(FONT_FAMILY, 9), wraplength=380, justify="left")
+        self.left_url_lbl.pack(fill="x", padx=8)
+        self.left_node_lbl = tk.Label(self.left_info_frame, text="", bg=CARD_BG, fg=TEXT_DIM,
+                                      font=(FONT_FAMILY, 9))
+        self.left_node_lbl.pack(anchor="w", padx=8, pady=(2, 0))
+        left_row = tk.Frame(self.left_info_frame, bg=CARD_BG)
+        left_row.pack(fill="x", padx=8, pady=(8, 4))
+        tk.Label(left_row, text="版本", bg=CARD_BG, fg=TEXT_DIM, font=(FONT_FAMILY, 9)).pack(side="left")
+        self.left_cb = ttk.Combobox(left_row, state="readonly")
+        self.left_cb.pack(side="left", fill="x", expand=True, padx=8)
+        self.left_cb.bind("<<ComboboxSelected>>", self._on_version_changed)
+        self.left_meta_lbl = tk.Label(self.left_info_frame, text="", bg=CARD_BG, fg=TEXT_DIM,
+                                      font=(FONT_FAMILY, 9), wraplength=380, justify="left")
+        self.left_meta_lbl.pack(fill="x", padx=8, pady=(0, 8))
+        left_btn_row = tk.Frame(self.left_info_frame, bg=CARD_BG)
+        left_btn_row.pack(anchor="e", padx=8, pady=8)
+        tk.Button(left_btn_row, text="🗑 清除", bg=CARD_BG, fg=TEXT_DIM, bd=0, cursor="hand2",
+                  command=self._clear_left, font=(FONT_FAMILY, 9)).pack(side="right", padx=4)
+        tk.Button(left_btn_row, text="📂 浏览...", bg=CARD_BG, fg=ACCENT, bd=0, cursor="hand2",
+                  command=self.browse_left, font=(FONT_FAMILY, 9)).pack(side="right", padx=4)
 
-        rrow = tk.Frame(self.body_frame, bg=CARD_BG)
-        rrow.pack(fill="x", padx=8, pady=(0, 8))
-        tk.Label(rrow, text="对面版本", bg=CARD_BG, fg=TEXT_DIM, font=(FONT_FAMILY, 9)).pack(side="left")
-        tk.Entry(rrow, textvariable=self.rev_var, bg=BG, fg=TEXT, insertbackground=TEXT,
-                 relief="flat", width=12, font=(FONT_FAMILY, 9)).pack(side="left", padx=8)
-        tk.Label(rrow, text="（默认 HEAD，可填具体 revision）", bg=CARD_BG, fg=TEXT_DARK,
-                 font=(FONT_FAMILY, 9)).pack(side="left")
+        # ── 右侧卡片：分支 B ──
+        right_card = tk.Frame(drop_area, bg=CARD_BG, highlightbackground=BORDER, highlightthickness=2)
+        right_card.grid(row=0, column=1, sticky="nsew", padx=8, pady=8)
 
-        tk.Button(self.body_frame, text="🔄 换个文件", bg=CARD_BG, fg=TEXT_DIM, bd=0, cursor="hand2",
-                  command=self.browse, font=(FONT_FAMILY, 9)).pack(anchor="e", padx=8, pady=(0, 8))
+        self.right_drop_frame = tk.Frame(right_card, bg=CARD_BG)
+        self.right_drop_frame.pack(fill="both", expand=True)
+        self.right_drop_frame.drop_target_register(DND_FILES)
+        self.right_drop_frame.dnd_bind("<<Drop>>", self.on_drop_right)
+
+        tk.Label(self.right_drop_frame, text="🌿 分支 B（新版本）", bg=CARD_BG, fg=TEXT_DIM,
+                 font=(FONT_FAMILY, 10, "bold")).pack(anchor="w", padx=8, pady=(8, 0))
+        tk.Label(self.right_drop_frame, text="拖入分支 B 的 .prefab", bg=CARD_BG, fg=TEXT_DIM,
+                 font=(FONT_FAMILY, 11)).pack(expand=True)
+        tk.Label(self.right_drop_frame, text="或点击选择文件", bg=CARD_BG, fg=TEXT_DARK,
+                 font=(FONT_FAMILY, 9)).pack()
+        tk.Button(self.right_drop_frame, text="📂 浏览...", bg=CARD_BG, fg=ACCENT, bd=0, cursor="hand2",
+                  command=self.browse_right, font=(FONT_FAMILY, 9)).pack(pady=8)
+
+        self.right_info_frame = tk.Frame(right_card, bg=CARD_BG)
+        tk.Label(self.right_info_frame, text="🌿 分支 B（新版本）", bg=CARD_BG, fg=TEXT_DIM,
+                 font=(FONT_FAMILY, 10, "bold")).pack(anchor="w", padx=8, pady=(8, 0))
+        self.right_name_lbl = tk.Label(self.right_info_frame, text="", bg=CARD_BG, fg=TEXT,
+                                       font=(FONT_FAMILY, 10, "bold"))
+        self.right_name_lbl.pack(anchor="w", padx=8, pady=(4, 0))
+        self.right_url_lbl = tk.Label(self.right_info_frame, text="", bg=CARD_BG, fg=TEXT_DARK,
+                                      font=(FONT_FAMILY, 9), wraplength=380, justify="left")
+        self.right_url_lbl.pack(fill="x", padx=8)
+        self.right_node_lbl = tk.Label(self.right_info_frame, text="", bg=CARD_BG, fg=TEXT_DIM,
+                                       font=(FONT_FAMILY, 9))
+        self.right_node_lbl.pack(anchor="w", padx=8, pady=(2, 0))
+        right_row = tk.Frame(self.right_info_frame, bg=CARD_BG)
+        right_row.pack(fill="x", padx=8, pady=(8, 4))
+        tk.Label(right_row, text="版本", bg=CARD_BG, fg=TEXT_DIM, font=(FONT_FAMILY, 9)).pack(side="left")
+        self.right_cb = ttk.Combobox(right_row, state="readonly")
+        self.right_cb.pack(side="left", fill="x", expand=True, padx=8)
+        self.right_cb.bind("<<ComboboxSelected>>", self._on_version_changed)
+        self.right_meta_lbl = tk.Label(self.right_info_frame, text="", bg=CARD_BG, fg=TEXT_DIM,
+                                       font=(FONT_FAMILY, 9), wraplength=380, justify="left")
+        self.right_meta_lbl.pack(fill="x", padx=8, pady=(0, 8))
+        right_btn_row = tk.Frame(self.right_info_frame, bg=CARD_BG)
+        right_btn_row.pack(anchor="e", padx=8, pady=8)
+        tk.Button(right_btn_row, text="🗑 清除", bg=CARD_BG, fg=TEXT_DIM, bd=0, cursor="hand2",
+                  command=self._clear_right, font=(FONT_FAMILY, 9)).pack(side="right", padx=4)
+        tk.Button(right_btn_row, text="📂 浏览...", bg=CARD_BG, fg=ACCENT, bd=0, cursor="hand2",
+                  command=self.browse_right, font=(FONT_FAMILY, 9)).pack(side="right", padx=4)
 
         # 操作按钮
-        action = tk.Frame(parent, bg=BG)
-        action.pack(fill="x", padx=16, pady=8)
-        self.compare_btn = tk.Button(action, text="🔍 生成分支对比报告", bg=PRIMARY_BTN_BG, fg=TEXT, bd=0,
-                                     padx=20, pady=6, cursor="hand2", state="disabled",
+        action_bar = tk.Frame(parent, bg=BG)
+        action_bar.pack(fill="x", padx=16, pady=8)
+        self.compare_btn = tk.Button(action_bar, text="请先拖入两个分支的 prefab 并选择版本", bg=BORDER,
+                                     fg=TEXT_DIM, bd=0, padx=20, pady=6, cursor="hand2", state="disabled",
                                      command=self.do_compare, font=(FONT_FAMILY, 10, "bold"))
         self.compare_btn.pack(side="left")
-        self.view_btn = tk.Button(action, text="👁 查看报告", bg=PRIMARY_BTN_BG, fg=TEXT, bd=0,
+        self.swap_btn = tk.Button(action_bar, text="🔃 交换", bg=CARD_BG, fg=ACCENT, bd=0,
+                                  padx=14, pady=6, cursor="hand2", state="disabled",
+                                  command=self._swap_sides, font=(FONT_FAMILY, 10, "bold"))
+        self.swap_btn.pack(side="left", padx=8)
+        self.view_btn = tk.Button(action_bar, text="👁 查看报告", bg=PRIMARY_BTN_BG, fg=TEXT, bd=0,
                                   padx=16, pady=6, cursor="hand2", state="disabled",
                                   font=(FONT_FAMILY, 10, "bold"))
         self.view_btn.pack(side="left", padx=8)

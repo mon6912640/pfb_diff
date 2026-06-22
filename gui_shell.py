@@ -121,7 +121,12 @@ class AppShell:
 
     def on_mousewheel(self, event) -> None:
         # 滚动鼠标所在的那个列表；内容不足一屏时不滚动
-        w = self.root.winfo_containing(event.x_root, event.y_root)
+        # ttk.Combobox 的下拉框（popdown）是临时窗口，winfo_containing 可能返回
+        # 无法解析的窗口路径，直接忽略即可。
+        try:
+            w = self.root.winfo_containing(event.x_root, event.y_root)
+        except Exception:
+            return
         while w is not None:
             if w in self.scroll_canvases:
                 if w.yview() != (0.0, 1.0):

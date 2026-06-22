@@ -247,12 +247,16 @@ class SvnTabSmokeTest(_GuiTestBase):
         # 还原工作副本，避免影响别的用例
         _svn(["revert", self.trunk_file])
 
+    def _branch_file(self):
+        """从 trunk_file 路径推导 branches/exp/foo.prefab 路径。"""
+        return os.path.join(os.path.dirname(os.path.dirname(self.trunk_file)),
+                            "branches", "exp", "foo.prefab")
+
     def test_branch_tab_compare_writes_report(self):
         tab = gui.branch_tab
-        tab.on_drop(_DropEvent(self.trunk_file))   # 当前=trunk(before)
-        # 目标 = branches/exp 上同名文件(after)
-        tab.target_var.set(self.repo_root.rstrip("/") + "/branches/exp/foo.prefab")
-        tab.rev_var.set("HEAD")
+        # 左侧 = trunk（before），右侧 = branches/exp（after）
+        tab.on_drop_left(_DropEvent(self.trunk_file))
+        tab.on_drop_right(_DropEvent(self._branch_file()))
 
         before_n = _count_html(gui_shell.BRANCH_REPORTS_DIR)
         tab.do_compare()
@@ -260,11 +264,16 @@ class SvnTabSmokeTest(_GuiTestBase):
         self.assertTrue(ok, "分支对比应结束并复位 busy")
         self.assertEqual(_count_html(gui_shell.BRANCH_REPORTS_DIR), before_n + 1)
 
-    def test_branch_apply_branch_swaps_url(self):
-        # _apply_branch 的 best-effort URL 拼接：trunk/... → branches/<name>/...
-        gui.branch_tab.on_drop(_DropEvent(self.trunk_file))
-        gui.branch_tab._apply_branch("exp")
-        self.assertTrue(gui.branch_tab.target_var.get().endswith("/branches/exp/foo.prefab"))
+    def test_branch_swap_sides(self):
+        tab = gui.branch_tab
+        tab.on_drop_left(_DropEvent(self.trunk_file))
+        self.assertEqual(tab.swap_btn["state"], "disabled")  # 只载入一侧时交换按钮禁用
+        tab.on_drop_right(_DropEvent(self._branch_file()))
+        self.assertEqual(tab.swap_btn["state"], "normal")    # 两侧都载入后启用
+        left_before, right_before = tab.left_file, tab.right_file
+        tab._swap_sides()
+        self.assertEqual(tab.left_file, right_before)
+        self.assertEqual(tab.right_file, left_before)
 
 
 if __name__ == "__main__":
