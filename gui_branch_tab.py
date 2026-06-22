@@ -45,19 +45,25 @@ _WORKING = ("working", None)
 class BranchTab:
     def __init__(self, shell: AppShell, parent: tk.Misc):
         self.shell = shell
-        self.busy = False
+        self.busy = False          # 正在生成报告
+        self.left_loading = False  # 正在读取左侧 SVN 历史
+        self.right_loading = False # 正在读取右侧 SVN 历史
 
         # 左侧端点
         self.left_file = None
         self.left_meta = None
         self.left_entries: list = []
         self.left_specs: list = []
+        self.left_options: list = []
+        self._pending_left_path: str | None = None
 
         # 右侧端点
         self.right_file = None
         self.right_meta = None
         self.right_entries: list = []
         self.right_specs: list = []
+        self.right_options: list = []
+        self._pending_right_path: str | None = None
 
         self._build(parent)
 
@@ -73,9 +79,27 @@ class BranchTab:
     def _load_left(self, path: str):
         if not self._validate(path):
             return
-        meta, entries = self._svn_info_and_log(path)
-        if meta is None:
-            return
+        self._pending_left_path = path
+        self._show_left_loading()
+        self.left_loading = True
+        self._refresh_controls()
+        threading.Thread(target=self._load_left_worker, args=(path,), daemon=True).start()
+
+    def _load_left_worker(self, path: str):
+        try:
+            meta = svnh.info(path)
+            entries = svnh.log(path)
+            info = _parse_info(path)
+            self.shell.root.after(0, self._on_left_loaded, path, meta, entries, info)
+        except Exception as e:
+            self.shell.root.after(0, self._on_left_failed, path, str(e))
+
+    def _on_left_loaded(self, path: str, meta: dict, entries: list, info: dict):
+        if self._pending_left_path != path:
+            return  # 加载过程中已被清除/覆盖，忽略过期回调
+        self._pending_left_path = None
+        self.left_loading = False
+
         self.left_file = path
         self.left_meta = meta
         self.left_entries = entries
@@ -85,12 +109,22 @@ class BranchTab:
         ]
         self.left_cb.config(values=self.left_options)
         self.left_cb.current(1 if len(self.left_options) > 1 else 0)
-        self._update_left_ui()
-        self._set_side_controls(True, "left")
+        self._update_left_ui(info)
         self._update_meta_labels()
+        self._refresh_controls()
         self._check_ready()
 
+    def _on_left_failed(self, path: str, error: str):
+        if self._pending_left_path != path:
+            return
+        self._pending_left_path = None
+        self.left_loading = False
+        self._clear_left()
+        self.shell.set_status("❌ 左侧文件加载失败")
+        messagebox.showerror("加载失败", error)
+
     def _clear_left(self):
+        self._pending_left_path = None
         self.left_file = None
         self.left_meta = None
         self.left_entries = []
@@ -98,8 +132,8 @@ class BranchTab:
         self.left_options = []
         self.left_cb.config(values=[])
         self._update_left_ui()
-        self._set_side_controls(False, "left")
         self._update_meta_labels()
+        self._refresh_controls()
         self._check_ready()
 
     # ── 右侧加载 ──
@@ -114,9 +148,27 @@ class BranchTab:
     def _load_right(self, path: str):
         if not self._validate(path):
             return
-        meta, entries = self._svn_info_and_log(path)
-        if meta is None:
+        self._pending_right_path = path
+        self._show_right_loading()
+        self.right_loading = True
+        self._refresh_controls()
+        threading.Thread(target=self._load_right_worker, args=(path,), daemon=True).start()
+
+    def _load_right_worker(self, path: str):
+        try:
+            meta = svnh.info(path)
+            entries = svnh.log(path)
+            info = _parse_info(path)
+            self.shell.root.after(0, self._on_right_loaded, path, meta, entries, info)
+        except Exception as e:
+            self.shell.root.after(0, self._on_right_failed, path, str(e))
+
+    def _on_right_loaded(self, path: str, meta: dict, entries: list, info: dict):
+        if self._pending_right_path != path:
             return
+        self._pending_right_path = None
+        self.right_loading = False
+
         self.right_file = path
         self.right_meta = meta
         self.right_entries = entries
@@ -126,12 +178,22 @@ class BranchTab:
         ]
         self.right_cb.config(values=self.right_options)
         self.right_cb.current(1 if len(self.right_options) > 1 else 0)
-        self._update_right_ui()
-        self._set_side_controls(True, "right")
+        self._update_right_ui(info)
         self._update_meta_labels()
+        self._refresh_controls()
         self._check_ready()
 
+    def _on_right_failed(self, path: str, error: str):
+        if self._pending_right_path != path:
+            return
+        self._pending_right_path = None
+        self.right_loading = False
+        self._clear_right()
+        self.shell.set_status("❌ 右侧文件加载失败")
+        messagebox.showerror("加载失败", error)
+
     def _clear_right(self):
+        self._pending_right_path = None
         self.right_file = None
         self.right_meta = None
         self.right_entries = []
@@ -139,8 +201,8 @@ class BranchTab:
         self.right_options = []
         self.right_cb.config(values=[])
         self._update_right_ui()
-        self._set_side_controls(False, "right")
         self._update_meta_labels()
+        self._refresh_controls()
         self._check_ready()
 
     # ── 公共辅助 ──
@@ -153,19 +215,29 @@ class BranchTab:
             return False
         return True
 
-    def _svn_info_and_log(self, path: str):
-        try:
-            meta = svnh.info(path)
-            entries = svnh.log(path)
-            return meta, entries
-        except svnh.SvnError as e:
-            messagebox.showerror("无法读取 svn 信息", f"{e}\n\n该文件需位于 SVN 工作副本内。")
-            return None, []
+    def _show_left_loading(self):
+        self.left_drop_frame.pack_forget()
+        self.left_info_frame.pack(fill="both", expand=True, padx=8, pady=8)
+        self.left_name_lbl.config(text="⏳ 正在读取 SVN 历史...", fg=ACCENT)
+        self.left_url_lbl.config(text="")
+        self.left_node_lbl.config(text="")
+        self.left_cb.config(values=[])
+        self.left_meta_lbl.config(text="")
 
-    def _update_left_ui(self):
+    def _show_right_loading(self):
+        self.right_drop_frame.pack_forget()
+        self.right_info_frame.pack(fill="both", expand=True, padx=8, pady=8)
+        self.right_name_lbl.config(text="⏳ 正在读取 SVN 历史...", fg=ACCENT)
+        self.right_url_lbl.config(text="")
+        self.right_node_lbl.config(text="")
+        self.right_cb.config(values=[])
+        self.right_meta_lbl.config(text="")
+
+    def _update_left_ui(self, info: dict | None = None):
         if self.left_file:
-            info = _parse_info(self.left_file)
-            self.left_name_lbl.config(text=os.path.basename(self.left_file))
+            if info is None:
+                info = _parse_info(self.left_file)
+            self.left_name_lbl.config(text=os.path.basename(self.left_file), fg=TEXT)
             self.left_url_lbl.config(text=f"r{self.left_meta['rev']}  ·  {self.left_meta['url']}")
             if info["ok"]:
                 self.left_node_lbl.config(text=f"📄 {info['node_count']} 节点")
@@ -174,16 +246,17 @@ class BranchTab:
             self.left_drop_frame.pack_forget()
             self.left_info_frame.pack(fill="both", expand=True, padx=8, pady=8)
         else:
-            self.left_name_lbl.config(text="")
+            self.left_name_lbl.config(text="", fg=TEXT)
             self.left_url_lbl.config(text="")
             self.left_node_lbl.config(text="")
             self.left_info_frame.pack_forget()
             self.left_drop_frame.pack(fill="both", expand=True, padx=8, pady=8)
 
-    def _update_right_ui(self):
+    def _update_right_ui(self, info: dict | None = None):
         if self.right_file:
-            info = _parse_info(self.right_file)
-            self.right_name_lbl.config(text=os.path.basename(self.right_file))
+            if info is None:
+                info = _parse_info(self.right_file)
+            self.right_name_lbl.config(text=os.path.basename(self.right_file), fg=TEXT)
             self.right_url_lbl.config(text=f"r{self.right_meta['rev']}  ·  {self.right_meta['url']}")
             if info["ok"]:
                 self.right_node_lbl.config(text=f"📄 {info['node_count']} 节点")
@@ -192,7 +265,7 @@ class BranchTab:
             self.right_drop_frame.pack_forget()
             self.right_info_frame.pack(fill="both", expand=True, padx=8, pady=8)
         else:
-            self.right_name_lbl.config(text="")
+            self.right_name_lbl.config(text="", fg=TEXT)
             self.right_url_lbl.config(text="")
             self.right_node_lbl.config(text="")
             self.right_info_frame.pack_forget()
@@ -226,6 +299,9 @@ class BranchTab:
             )
 
     def _swap_sides(self):
+        # 加载中禁止交换
+        if self.busy or self.left_loading or self.right_loading:
+            return
         # 交换文件与历史记录
         self.left_file, self.right_file = self.right_file, self.left_file
         self.left_meta, self.right_meta = self.right_meta, self.left_meta
@@ -243,11 +319,12 @@ class BranchTab:
         self._update_left_ui()
         self._update_right_ui()
         self._update_meta_labels()
+        self._refresh_controls()
         self._check_ready()
 
     # ── 对比 ──
     def do_compare(self):
-        if self.busy or not self.left_file or not self.right_file:
+        if self.busy or self.left_loading or self.right_loading or not self.left_file or not self.right_file:
             return
         li, ri = self.left_cb.current(), self.right_cb.current()
         if li < 0 or ri < 0:
@@ -256,7 +333,6 @@ class BranchTab:
         if left_spec == right_spec and self.left_file == self.right_file:
             messagebox.showinfo("提示", "两个端点相同，无需对比")
             return
-        self.busy = True
         self._set_controls(False)
         self.compare_btn.config(text="⏳ 正在取版本并对比...")
         threading.Thread(target=self._worker, args=(left_spec, right_spec), daemon=True).start()
@@ -295,45 +371,50 @@ class BranchTab:
             shutil.rmtree(work, ignore_errors=True)
 
     def _on_done(self, html: str):
-        self.busy = False
         self._set_controls(True)
-        self._check_ready()
         self.view_btn.config(state="normal", command=lambda: self.shell.open_report(html))
         self.shell.set_status(f"✅ 已完成: {os.path.basename(html)}")
         self.shell.load_recent_reports()
         self.shell.open_report(html)
 
     def _on_fail(self, error: str):
-        self.busy = False
         self._set_controls(True)
-        self._check_ready()
         self.shell.set_status("❌ 对比失败")
         messagebox.showerror("对比失败", error)
 
+    # ── 控件状态 ──
     def _set_controls(self, enabled: bool):
-        self._set_side_controls(enabled, "left")
-        self._set_side_controls(enabled, "right")
-        self.swap_btn.config(state="normal" if (enabled and self.left_file and self.right_file) else "disabled")
+        """生成报告开始/结束时调用。"""
+        self.busy = not enabled
+        self._refresh_controls()
+        self._check_ready()
 
-    def _set_side_controls(self, enabled: bool, side: str):
-        if side == "left":
-            self.left_cb.config(state="readonly" if enabled else "disabled")
-        else:
-            self.right_cb.config(state="readonly" if enabled else "disabled")
+    def _refresh_controls(self):
+        """根据当前状态刷新 combobox / 交换按钮的启用状态。"""
+        self.left_cb.config(
+            state="readonly" if (self.left_file and not self.busy and not self.left_loading) else "disabled"
+        )
+        self.right_cb.config(
+            state="readonly" if (self.right_file and not self.busy and not self.right_loading) else "disabled"
+        )
+        self.swap_btn.config(
+            state="normal" if (self.left_file and self.right_file and not self.busy
+                               and not self.left_loading and not self.right_loading) else "disabled"
+        )
 
     def _check_ready(self):
         li, ri = self.left_cb.current(), self.right_cb.current()
         same_file = self.left_file and self.right_file and self.left_file == self.right_file
         same_spec = li >= 0 and ri >= 0 and self.left_specs[li] == self.right_specs[ri]
-        ready = bool(self.left_file and self.right_file and li >= 0 and ri >= 0 and not (same_file and same_spec))
-        if not self.busy:
-            self.compare_btn.config(
-                state="normal" if ready else "disabled",
-                text="🔍 生成分支对比报告" if ready else "请先拖入两个分支的 prefab 并选择版本",
-            )
-            self.swap_btn.config(
-                state="normal" if (self.left_file and self.right_file) else "disabled"
-            )
+        ready = bool(
+            self.left_file and self.right_file and li >= 0 and ri >= 0
+            and not (same_file and same_spec)
+            and not self.busy and not self.left_loading and not self.right_loading
+        )
+        self.compare_btn.config(
+            state="normal" if ready else "disabled",
+            text="🔍 生成分支对比报告" if ready else "请先拖入两个分支的 prefab 并选择版本",
+        )
 
     # ── 构建 ──
     def _build(self, parent: tk.Misc):

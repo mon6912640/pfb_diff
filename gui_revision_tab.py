@@ -51,7 +51,9 @@ class RevisionTab:
         self.entries: list = []   # svn log 返回的原始条目
         self.specs: list = []     # 与下拉项对齐：[("working",None), ("rev",N), ...]
         self.options: list = []   # 下拉框显示文本
-        self.busy = False
+        self.busy = False         # 正在生成报告
+        self.loading = False      # 正在读取 SVN 历史
+        self._pending_path: str | None = None
         self._build(parent)
 
     # ── 加载文件 ──
@@ -70,12 +72,27 @@ class RevisionTab:
         if not svnh.svn_available():
             messagebox.showerror("缺少 svn", "未找到 svn 命令，请先安装 SVN 命令行客户端并加入 PATH")
             return
+
+        self._pending_path = path
+        self._show_file_loading()
+        self.loading = True
+        self._refresh_controls()
+        threading.Thread(target=self._load_worker, args=(path,), daemon=True).start()
+
+    def _load_worker(self, path: str):
         try:
             meta = svnh.info(path)
             entries = svnh.log(path)
-        except svnh.SvnError as e:
-            messagebox.showerror("无法读取 svn 信息", f"{e}\n\n该文件需位于 SVN 工作副本内。")
-            return
+            info = _parse_info(path)
+            self.shell.root.after(0, self._on_loaded, path, meta, entries, info)
+        except Exception as e:
+            self.shell.root.after(0, self._on_failed, path, str(e))
+
+    def _on_loaded(self, path: str, meta: dict, entries: list, info: dict):
+        if self._pending_path != path:
+            return  # 加载过程中已被清除/覆盖，忽略过期回调
+        self._pending_path = None
+        self.loading = False
 
         self.file = path
         self.meta = meta
@@ -91,12 +108,22 @@ class RevisionTab:
         self.left_cb.current(1 if len(self.options) > 1 else 0)
         self.right_cb.current(0)
 
-        self._update_file_banner()
-        self._set_controls(True)
+        self._update_file_banner(info)
         self._update_meta_labels()
+        self._refresh_controls()
         self._check_ready()
 
+    def _on_failed(self, path: str, error: str):
+        if self._pending_path != path:
+            return
+        self._pending_path = None
+        self.loading = False
+        self._clear_file()
+        self.shell.set_status("❌ 文件加载失败")
+        messagebox.showerror("加载失败", error)
+
     def _clear_file(self):
+        self._pending_path = None
         self.file = None
         self.meta = None
         self.entries = []
@@ -105,14 +132,24 @@ class RevisionTab:
         self.left_cb.config(values=[])
         self.right_cb.config(values=[])
         self._update_file_banner()
-        self._set_controls(False)
         self._update_meta_labels()
+        self._refresh_controls()
         self._check_ready()
 
-    def _update_file_banner(self):
+    def _show_file_loading(self):
+        self.file_drop_frame.pack_forget()
+        self.file_info_frame.pack(fill="both", expand=True, padx=8, pady=8)
+        self.file_name_lbl.config(text="⏳ 正在读取 SVN 历史...", fg=ACCENT)
+        self.file_url_lbl.config(text="")
+        self.file_meta_lbl.config(text="")
+        self.left_cb.config(values=[])
+        self.right_cb.config(values=[])
+
+    def _update_file_banner(self, info: dict | None = None):
         if self.file:
-            info = _parse_info(self.file)
-            self.file_name_lbl.config(text=os.path.basename(self.file))
+            if info is None:
+                info = _parse_info(self.file)
+            self.file_name_lbl.config(text=os.path.basename(self.file), fg=TEXT)
             self.file_url_lbl.config(text=f"r{self.meta['rev']}  ·  {self.meta['url']}")
             if info["ok"]:
                 self.file_meta_lbl.config(text=f"📄 {info['node_count']} 节点")
@@ -121,7 +158,7 @@ class RevisionTab:
             self.file_drop_frame.pack_forget()
             self.file_info_frame.pack(fill="both", expand=True, padx=8, pady=8)
         else:
-            self.file_name_lbl.config(text="")
+            self.file_name_lbl.config(text="", fg=TEXT)
             self.file_url_lbl.config(text="")
             self.file_meta_lbl.config(text="")
             self.file_info_frame.pack_forget()
@@ -155,6 +192,8 @@ class RevisionTab:
             )
 
     def _swap_versions(self):
+        if self.busy or self.loading or not self.file:
+            return
         li, ri = self.left_cb.current(), self.right_cb.current()
         if li < 0 or ri < 0:
             return
@@ -165,7 +204,7 @@ class RevisionTab:
 
     # ── 对比 ──
     def do_compare(self):
-        if self.busy or not self.file:
+        if self.busy or self.loading or not self.file:
             return
         li, ri = self.left_cb.current(), self.right_cb.current()
         if li < 0 or ri < 0:
@@ -174,12 +213,11 @@ class RevisionTab:
         if left_spec == right_spec:
             messagebox.showinfo("提示", "两个端点相同，无需对比")
             return
-        self.busy = True
         self._set_controls(False)
         self.compare_btn.config(text="⏳ 正在取版本并对比...")
         threading.Thread(target=self._worker, args=(left_spec, right_spec), daemon=True).start()
 
-    def _resolve(self, spec, workdir, side) -> tuple:
+    def _resolve(self, spec, workdir: str, side: str) -> tuple:
         """把端点解析成 (文件路径, 标签)。工作副本端直接用 WC 文件，不 cat。"""
         kind, rev = spec
         if kind == "working":
@@ -212,39 +250,41 @@ class RevisionTab:
             shutil.rmtree(work, ignore_errors=True)
 
     def _on_done(self, html: str):
-        self.busy = False
         self._set_controls(True)
-        self._check_ready()
         self.view_btn.config(state="normal", command=lambda: self.shell.open_report(html))
         self.shell.set_status(f"✅ 已完成: {os.path.basename(html)}")
         self.shell.load_recent_reports()
         self.shell.open_report(html)
 
     def _on_fail(self, error: str):
-        self.busy = False
         self._set_controls(True)
-        self._check_ready()
         self.shell.set_status("❌ 对比失败")
         messagebox.showerror("对比失败", error)
 
+    # ── 控件状态 ──
     def _set_controls(self, enabled: bool):
-        if enabled:
-            self.left_cb.config(state="readonly")
-            self.right_cb.config(state="readonly")
-            self.swap_btn.config(state="normal" if self.file else "disabled")
-        else:
-            self.left_cb.config(state="disabled")
-            self.right_cb.config(state="disabled")
-            self.swap_btn.config(state="disabled")
+        """生成报告开始/结束时调用。"""
+        self.busy = not enabled
+        self._refresh_controls()
+        self._check_ready()
+
+    def _refresh_controls(self):
+        """根据当前状态刷新 combobox / 交换按钮的启用状态。"""
+        readonly = bool(self.file and not self.busy and not self.loading)
+        self.left_cb.config(state="readonly" if readonly else "disabled")
+        self.right_cb.config(state="readonly" if readonly else "disabled")
+        self.swap_btn.config(state="normal" if readonly else "disabled")
 
     def _check_ready(self):
         li, ri = self.left_cb.current(), self.right_cb.current()
-        ready = bool(self.file and li >= 0 and ri >= 0 and self.specs[li] != self.specs[ri])
-        if not self.busy:
-            self.compare_btn.config(
-                state="normal" if ready else "disabled",
-                text="🔍 生成版本对比报告" if ready else "请先选择文件与两个版本",
-            )
+        ready = bool(
+            self.file and li >= 0 and ri >= 0 and self.specs[li] != self.specs[ri]
+            and not self.busy and not self.loading
+        )
+        self.compare_btn.config(
+            state="normal" if ready else "disabled",
+            text="🔍 生成版本对比报告" if ready else "请先选择文件与两个版本",
+        )
 
     # ── 构建 ──
     def _build(self, parent: tk.Misc):

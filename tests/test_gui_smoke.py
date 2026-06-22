@@ -235,6 +235,9 @@ class SvnTabSmokeTest(_GuiTestBase):
         with open(self.trunk_file, "wb") as fp:
             fp.write(self.after)
         tab.on_drop(_DropEvent(self.trunk_file))
+        # 等待后台加载 SVN 历史完成
+        ok = _wait_until(self.root, lambda: not tab.loading)
+        self.assertTrue(ok, "版本对比文件加载应结束")
         # 左=最旧的 revision（r1=before），右=工作副本（after）
         tab.left_cb.current(len(tab.specs) - 1)
         tab.right_cb.current(0)
@@ -257,6 +260,9 @@ class SvnTabSmokeTest(_GuiTestBase):
         # 左侧 = trunk（before），右侧 = branches/exp（after）
         tab.on_drop_left(_DropEvent(self.trunk_file))
         tab.on_drop_right(_DropEvent(self._branch_file()))
+        # 等待两侧后台加载 SVN 历史完成
+        ok = _wait_until(self.root, lambda: not tab.left_loading and not tab.right_loading)
+        self.assertTrue(ok, "分支对比两侧文件加载应结束")
 
         before_n = _count_html(gui_shell.BRANCH_REPORTS_DIR)
         tab.do_compare()
@@ -269,6 +275,9 @@ class SvnTabSmokeTest(_GuiTestBase):
         tab.on_drop_left(_DropEvent(self.trunk_file))
         self.assertEqual(tab.swap_btn["state"], "disabled")  # 只载入一侧时交换按钮禁用
         tab.on_drop_right(_DropEvent(self._branch_file()))
+        # 等待右侧后台加载完成后再断言按钮状态
+        ok = _wait_until(self.root, lambda: not tab.right_loading)
+        self.assertTrue(ok, "右侧文件加载应结束")
         self.assertEqual(tab.swap_btn["state"], "normal")    # 两侧都载入后启用
         left_before, right_before = tab.left_file, tab.right_file
         tab._swap_sides()
