@@ -124,6 +124,7 @@ class RevisionTab:
 
     def _clear_file(self):
         self._pending_path = None
+        self.loading = False
         self.file = None
         self.meta = None
         self.entries = []
@@ -269,11 +270,14 @@ class RevisionTab:
         self._check_ready()
 
     def _refresh_controls(self):
-        """根据当前状态刷新 combobox / 交换按钮的启用状态。"""
+        """根据当前状态刷新 combobox / 交换 / 清除 / 浏览按钮的启用状态。"""
         readonly = bool(self.file and not self.busy and not self.loading)
         self.left_cb.config(state="readonly" if readonly else "disabled")
         self.right_cb.config(state="readonly" if readonly else "disabled")
         self.swap_btn.config(state="normal" if readonly else "disabled")
+        # 加载期间禁用文件横幅的清除/浏览按钮
+        self.file_clear_btn.config(state="disabled" if self.loading else "normal")
+        self.file_browse_btn.config(state="disabled" if self.loading else "normal")
 
     def _check_ready(self):
         li, ri = self.left_cb.current(), self.right_cb.current()
@@ -323,10 +327,12 @@ class RevisionTab:
         self.file_meta_lbl = tk.Label(file_bottom, text="", bg=CARD_BG, fg=TEXT_DIM,
                                       font=(FONT_FAMILY, 9))
         self.file_meta_lbl.pack(side="left")
-        tk.Button(file_bottom, text="🗑 清除", bg=CARD_BG, fg=TEXT_DIM, bd=0, cursor="hand2",
-                  command=self._clear_file, font=(FONT_FAMILY, 9)).pack(side="right", padx=4)
-        tk.Button(file_bottom, text="📂 浏览...", bg=CARD_BG, fg=ACCENT, bd=0, cursor="hand2",
-                  command=self.browse, font=(FONT_FAMILY, 9)).pack(side="right", padx=4)
+        self.file_clear_btn = tk.Button(file_bottom, text="🗑 清除", bg=CARD_BG, fg=TEXT_DIM, bd=0,
+                                        cursor="hand2", command=self._clear_file, font=(FONT_FAMILY, 9))
+        self.file_clear_btn.pack(side="right", padx=4)
+        self.file_browse_btn = tk.Button(file_bottom, text="📂 浏览...", bg=CARD_BG, fg=ACCENT, bd=0,
+                                         cursor="hand2", command=self.browse, font=(FONT_FAMILY, 9))
+        self.file_browse_btn.pack(side="right", padx=4)
 
         # ── 左侧卡片：旧版本（before）──
         left_card = tk.Frame(drop_area, bg=CARD_BG, highlightbackground=BORDER, highlightthickness=2)

@@ -125,6 +125,7 @@ class BranchTab:
 
     def _clear_left(self):
         self._pending_left_path = None
+        self.left_loading = False
         self.left_file = None
         self.left_meta = None
         self.left_entries = []
@@ -194,6 +195,7 @@ class BranchTab:
 
     def _clear_right(self):
         self._pending_right_path = None
+        self.right_loading = False
         self.right_file = None
         self.right_meta = None
         self.right_entries = []
@@ -390,7 +392,7 @@ class BranchTab:
         self._check_ready()
 
     def _refresh_controls(self):
-        """根据当前状态刷新 combobox / 交换按钮的启用状态。"""
+        """根据当前状态刷新 combobox / 交换 / 清除 / 浏览按钮的启用状态。"""
         self.left_cb.config(
             state="readonly" if (self.left_file and not self.busy and not self.left_loading) else "disabled"
         )
@@ -401,6 +403,11 @@ class BranchTab:
             state="normal" if (self.left_file and self.right_file and not self.busy
                                and not self.left_loading and not self.right_loading) else "disabled"
         )
+        # 加载期间禁用清除/浏览，避免触发竞态
+        self.left_clear_btn.config(state="disabled" if self.left_loading else "normal")
+        self.left_browse_btn.config(state="disabled" if self.left_loading else "normal")
+        self.right_clear_btn.config(state="disabled" if self.right_loading else "normal")
+        self.right_browse_btn.config(state="disabled" if self.right_loading else "normal")
 
     def _check_ready(self):
         li, ri = self.left_cb.current(), self.right_cb.current()
@@ -465,10 +472,12 @@ class BranchTab:
         self.left_meta_lbl.pack(fill="x", padx=8, pady=(0, 8))
         left_btn_row = tk.Frame(self.left_info_frame, bg=CARD_BG)
         left_btn_row.pack(anchor="e", padx=8, pady=8)
-        tk.Button(left_btn_row, text="🗑 清除", bg=CARD_BG, fg=TEXT_DIM, bd=0, cursor="hand2",
-                  command=self._clear_left, font=(FONT_FAMILY, 9)).pack(side="right", padx=4)
-        tk.Button(left_btn_row, text="📂 浏览...", bg=CARD_BG, fg=ACCENT, bd=0, cursor="hand2",
-                  command=self.browse_left, font=(FONT_FAMILY, 9)).pack(side="right", padx=4)
+        self.left_clear_btn = tk.Button(left_btn_row, text="🗑 清除", bg=CARD_BG, fg=TEXT_DIM, bd=0,
+                                        cursor="hand2", command=self._clear_left, font=(FONT_FAMILY, 9))
+        self.left_clear_btn.pack(side="right", padx=4)
+        self.left_browse_btn = tk.Button(left_btn_row, text="📂 浏览...", bg=CARD_BG, fg=ACCENT, bd=0,
+                                         cursor="hand2", command=self.browse_left, font=(FONT_FAMILY, 9))
+        self.left_browse_btn.pack(side="right", padx=4)
 
         # ── 右侧卡片：分支 B ──
         right_card = tk.Frame(drop_area, bg=CARD_BG, highlightbackground=BORDER, highlightthickness=2)
@@ -511,10 +520,12 @@ class BranchTab:
         self.right_meta_lbl.pack(fill="x", padx=8, pady=(0, 8))
         right_btn_row = tk.Frame(self.right_info_frame, bg=CARD_BG)
         right_btn_row.pack(anchor="e", padx=8, pady=8)
-        tk.Button(right_btn_row, text="🗑 清除", bg=CARD_BG, fg=TEXT_DIM, bd=0, cursor="hand2",
-                  command=self._clear_right, font=(FONT_FAMILY, 9)).pack(side="right", padx=4)
-        tk.Button(right_btn_row, text="📂 浏览...", bg=CARD_BG, fg=ACCENT, bd=0, cursor="hand2",
-                  command=self.browse_right, font=(FONT_FAMILY, 9)).pack(side="right", padx=4)
+        self.right_clear_btn = tk.Button(right_btn_row, text="🗑 清除", bg=CARD_BG, fg=TEXT_DIM, bd=0,
+                                         cursor="hand2", command=self._clear_right, font=(FONT_FAMILY, 9))
+        self.right_clear_btn.pack(side="right", padx=4)
+        self.right_browse_btn = tk.Button(right_btn_row, text="📂 浏览...", bg=CARD_BG, fg=ACCENT, bd=0,
+                                          cursor="hand2", command=self.browse_right, font=(FONT_FAMILY, 9))
+        self.right_browse_btn.pack(side="right", padx=4)
 
         # 操作按钮
         action_bar = tk.Frame(parent, bg=BG)
