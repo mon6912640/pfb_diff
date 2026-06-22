@@ -16,6 +16,7 @@ AttributeError 暴露，而不必手动开窗口逐个点。
 重构搬动控件/全局时若行为不变则此处应保持全绿。
 """
 
+import gc
 import os
 import pathlib
 import shutil
@@ -87,6 +88,17 @@ class _GuiTestBase(unittest.TestCase):
     """公共 setUp/tearDown：stub 弹窗、无头建窗、收尾后台线程、取消挂起 after。"""
 
     def setUp(self):
+        # 测试期间禁用自动循环 GC。Tk 对象互相引用成环，只能靠循环 GC 回收；
+        # 而循环 GC 会在任意线程的任意一次内存分配时触发——后台对比 worker
+        # （diff_prefabs 大量分配）一旦在 worker 线程触发回收，析构上一个用例
+        # 遗留的 Tk 解释器时，会在错误线程销毁其 Tcl 异步 handler，导致进程级
+        # "Tcl_AsyncDelete: async handler deleted by the wrong thread" 崩溃。
+        # 关掉自动 GC 后，回收只在 tearDown 由主线程显式执行（见 tearDown）。
+        # 用 addCleanup 兜底恢复：即便 setUp 后续步骤抛错（此时 unittest 不调
+        # tearDown），也保证自动 GC 一定被重新打开。
+        gc.disable()
+        self.addCleanup(gc.enable)
+
         # messagebox.* 是阻塞式模态弹窗，无头测试若真弹出会一直等人点 OK。
         # 各页签模块各自 import 了 messagebox，需逐个 stub，让回调提示全部静默。
         self._orig_box = []
@@ -102,8 +114,16 @@ class _GuiTestBase(unittest.TestCase):
         gui.shell.open_report = lambda p: None
 
     def tearDown(self):
-        # 等后台分析线程收尾，避免它的 root.after 回调打到已销毁的窗口
-        _wait_until(self.root, lambda: not gui.conflict_tab.busy, timeout=30.0)
+        # 等所有页签的后台线程收尾（冲突分析 + 版本/分支对比的加载与对比），
+        # 否则它们的 root.after 回调会打到已销毁的窗口，向 stderr 刷噪音。
+        _wait_until(
+            self.root,
+            lambda: not gui.conflict_tab.busy
+            and not gui.revision_tab.busy and not gui.revision_tab.loading
+            and not gui.branch_tab.busy
+            and not gui.branch_tab.left_loading and not gui.branch_tab.right_loading,
+            timeout=30.0,
+        )
         for mod, name, fn in self._orig_box:
             setattr(mod.messagebox, name, fn)
         # 取消挂起的 after/after_idle 回调，否则窗口销毁后它们打空
@@ -120,6 +140,10 @@ class _GuiTestBase(unittest.TestCase):
             self.root.destroy()
         except Exception:
             pass
+        # 在主线程显式回收（含本/上个用例遗留的 Tk 解释器及其引用环）。
+        # 回收发生在主线程，不会触发跨线程 Tcl_AsyncDelete。自动 GC 由
+        # setUp 注册的 addCleanup(gc.enable) 在本方法之后恢复。
+        gc.collect()
 
 
 class GuiSmokeTest(_GuiTestBase):
